@@ -3,4 +3,27 @@ name = "samtrader"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "samtrader"
+path = "src/lib.rs"
+
+[[bin]]
+name = "samtrader"
+path = "src/main.rs"
+
+[features]
+default = ["postgres"]
+postgres = ["dep:postgres"]
+
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+configparser = "3"
+csv = "1"
+thiserror = "2"
+postgres = { version = "0.19", optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+proptest = "1"
+tempfile = "3"
