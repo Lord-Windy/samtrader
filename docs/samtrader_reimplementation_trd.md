@@ -1,8 +1,8 @@
-# Samtrader Reimplementation TRD
+# Samtrader Rust Implementation TRD
 
-A unified, language-neutral technical requirements document for reimplementing
-samtrader as a standalone project. Consolidates Phase 1 (core backtesting),
-Phase 2 (multi-code/universe support), and all code review findings.
+A Rust-specific technical requirements document for reimplementing samtrader as
+a standalone project. Consolidates Phase 1 (core backtesting), Phase 2
+(multi-code/universe support), and all code review findings.
 
 ---
 
@@ -22,15 +22,21 @@ Samtrader is an algorithmic trading backtester. It enables users to:
 ### 1.2 Design Philosophy
 
 - **Hexagonal Architecture**: Clean separation between domain logic, ports
-  (interfaces), and adapters (implementations). Domain code has zero knowledge
+  (traits), and adapters (implementations). Domain code has zero knowledge
   of I/O mechanisms.
 - **Library Core as First-Class Target**: The domain logic, ports, and adapters
-  are packaged as a library. The CLI is a thin consumer of this library.
+  are packaged as a library (`[lib]` target). The CLI is a thin `[[bin]]`
+  consumer of this library.
   *(Review fix #4: no library target in original)*
+- **Ownership-Driven Safety**: Rust ownership and borrowing replace arena
+  allocation. No explicit `free()` or `close()` — `Drop` handles cleanup,
+  `Result<T, E>` replaces null-return error handling, and the type system
+  prevents null pointer dereferences at compile time.
 - **Function Composition**: Rules are composable predicates defined as text in
   configuration files. No code changes needed to express new strategies.
 - **Minimal Dependencies**: Only the default data adapter (PostgreSQL) requires
-  an external library. A CSV adapter is available for standalone use.
+  an external library, and it is behind a Cargo feature flag (`postgres`). A
+  CSV adapter is available for standalone use with zero non-Rust dependencies.
 
 ### 1.3 Non-Goals
 
@@ -47,53 +53,59 @@ Samtrader is an algorithmic trading backtester. It enables users to:
 
 ## 2. Architecture
 
-### 2.1 Hexagonal Structure
+### 2.1 Project Structure
 
 ```
 samtrader/
-├── lib/                           # Library core (the first-class target)
-│   ├── domain/                    # Core business logic
-│   │   ├── ohlcv                  # Price data structures
-│   │   ├── indicator/             # Technical indicators (one file per indicator)
-│   │   ├── indicator_helpers      # Shared indicator pre-computation logic
-│   │   ├── rule                   # Rule AST structures
-│   │   ├── rule_parser            # Text → AST parsing
-│   │   ├── rule_eval              # Rule evaluation against bars
-│   │   ├── position               # Open position tracking
-│   │   ├── portfolio              # Portfolio state management
-│   │   ├── execution              # Trade entry/exit logic
-│   │   ├── backtest               # Backtest loop as a callable domain function
-│   │   ├── metrics                # Performance metrics computation
-│   │   ├── strategy               # Strategy definition
-│   │   ├── universe               # Multi-code parsing & validation
-│   │   ├── code_data              # Per-code data container
-│   │   └── error                  # Error types and reporting
-│   ├── ports/                     # Abstract interfaces
-│   │   ├── data_port              # Data source interface
-│   │   ├── config_port            # Configuration interface
-│   │   └── report_port            # Report output interface
-│   └── adapters/                  # Concrete implementations
-│       ├── postgres_adapter       # PostgreSQL data source (default)
-│       ├── csv_adapter            # CSV file data source
-│       ├── file_config_adapter    # INI file-based config
-│       └── typst_report_adapter/  # Typst report output (split into submodules)
-│           ├── adapter            # Port implementation, orchestration
-│           ├── chart_svg          # SVG equity curve and drawdown charts
-│           ├── tables             # Monthly returns, trade log, universe summary
-│           └── default_template   # Built-in Typst report markup
-├── cli/                           # Thin CLI binary
-│   └── main                       # Argument parsing, orchestration only
-└── tests/
-    ├── unit/                      # Per-module unit tests
-    ├── integration/               # Multi-module pipeline tests
-    └── e2e/                       # End-to-end CLI tests
+├── Cargo.toml                    # Single crate: lib + bin targets
+├── src/
+│   ├── lib.rs                    # Library root — re-exports public API
+│   ├── main.rs                   # CLI binary (thin consumer of lib)
+│   ├── domain/
+│   │   ├── mod.rs
+│   │   ├── ohlcv.rs              # Price data structures
+│   │   ├── position.rs           # Open position tracking
+│   │   ├── portfolio.rs          # Portfolio state management
+│   │   ├── execution.rs          # Trade entry/exit logic
+│   │   ├── indicator/            # One file per indicator (sma.rs, ema.rs, etc.)
+│   │   │   └── mod.rs            # IndicatorValue enum, IndicatorSeries, dispatch
+│   │   ├── indicator_helpers.rs  # Shared indicator pre-computation logic
+│   │   ├── rule.rs               # Rule AST structures
+│   │   ├── rule_parser.rs        # Text → AST parsing
+│   │   ├── rule_eval.rs          # Rule evaluation against bars
+│   │   ├── backtest.rs           # Backtest loop as a callable domain function
+│   │   ├── metrics.rs            # Performance metrics computation
+│   │   ├── strategy.rs           # Strategy definition
+│   │   ├── universe.rs           # Multi-code parsing & validation
+│   │   ├── code_data.rs          # Per-code data container
+│   │   └── error.rs              # thiserror-derived error types
+│   ├── ports/                    # Trait definitions (abstract interfaces)
+│   │   ├── mod.rs
+│   │   ├── data_port.rs          # Data source trait
+│   │   ├── config_port.rs        # Configuration trait
+│   │   └── report_port.rs        # Report output trait
+│   └── adapters/
+│       ├── mod.rs
+│       ├── postgres_adapter.rs   # PostgreSQL data source (feature-gated)
+│       ├── csv_adapter.rs        # CSV file data source
+│       ├── file_config_adapter.rs # INI file-based config
+│       └── typst_report/         # Typst report output (split into submodules)
+│           ├── mod.rs            # Port implementation, orchestration
+│           ├── chart_svg.rs      # SVG equity curve and drawdown charts
+│           ├── tables.rs         # Monthly returns, trade log, universe summary
+│           └── default_template.rs # Built-in Typst report markup
+└── tests/                        # Integration tests
 ```
+
+**Decision: Single crate** with `[lib]` + `[[bin]]` targets in one `Cargo.toml`.
+A workspace is a mechanical refactor later if needed — premature splitting adds
+coordination overhead with no benefit at this scale.
 
 ### 2.2 Dependency Flow
 
 ```
                     ┌─────────────────┐
-                    │      CLI        │
+                    │   CLI (main.rs) │
                     └────────┬────────┘
                              │ depends on
                              ▼
@@ -105,14 +117,36 @@ samtrader/
                              │ implements
                              ▼
                     ┌─────────────────┐
-                    │ External libs   │
-                    │ (libpq, libm)   │
+                    │  Cargo crates   │
+                    │ (chrono, clap,  │
+                    │  postgres, ...) │
                     └─────────────────┘
 ```
 
 **Key Principle**: Domain code has NO knowledge of adapters. All external
-interactions go through port interfaces. Adapters depend on ports; ports depend
+interactions go through port traits. Adapters depend on ports; ports depend
 on nothing outside the domain.
+
+#### 2.2.1 Cargo.toml Dependencies
+
+| Crate | Purpose | Notes |
+|---|---|---|
+| `chrono` 0.4 | `NaiveDate` for daily-resolution dates | `default-features = false, features = ["std"]` |
+| `clap` 4 | CLI parsing via `#[derive(Parser)]` | `features = ["derive"]` |
+| `configparser` 3 | INI file parsing | Lightweight, no proc macros |
+| `csv` 1 | CSV data adapter | Standard Rust CSV crate |
+| `thiserror` 2 | Derive `Error` + `Display` for error types | Zero runtime cost |
+| `postgres` 0.19 | PostgreSQL adapter | **Optional**, feature-gated |
+| **Dev:** `approx` 0.5 | `assert_relative_eq!` for f64 tests | |
+| **Dev:** `proptest` 1 | Property-based testing | |
+| **Dev:** `tempfile` 3 | Temp files for integration tests | |
+
+Feature flags in `Cargo.toml`:
+```toml
+[features]
+default = ["postgres"]
+postgres = ["dep:postgres"]
+```
 
 ### 2.3 Key Design Decisions vs. Original
 
@@ -129,127 +163,214 @@ on nothing outside the domain.
 | All indicators implemented | ROC, STDDEV, OBV, VWAP must have calculation functions | #3.6 |
 | CSV data adapter | Removes hard PostgreSQL dependency for simple use cases | Review Priority 3 |
 
+### 2.4 Rust Idioms Reference
+
+The original C implementation uses arena allocation, function pointer structs,
+tagged unions, and custom data structure libraries. This table maps each
+C pattern to its idiomatic Rust replacement:
+
+| C Pattern | Rust Replacement |
+|---|---|
+| `Samrena *arena` everywhere | Owned data (`Vec<T>`, `String`, `Box<T>`) — RAII via `Drop` |
+| `SamrenaVector *` | `Vec<T>` |
+| `SamHashMap *` | `HashMap<K, V>` (from `std::collections`) |
+| Function pointer structs (ports) | `trait` definitions |
+| `void *impl` | Concrete adapter struct fields |
+| `typedef enum` + flat struct (tagged union) | `enum Rule { Variant { fields }, ... }` — Rust enum variants |
+| C tagged union | Rust enum with per-variant data |
+| NULL return for errors | `Result<T, SamtraderError>` |
+| `if (!ptr) return NULL` chains | `?` operator (early return on `Err`) |
+| `goto cleanup` | RAII / `Drop` / `?` — no manual cleanup needed |
+| Custom `ASSERT` macros | `assert!()`, `assert_eq!()`, `#[test]` |
+| `time_t` | `chrono::NaiveDate` (daily resolution, no timezone ambiguity) |
+| `const char *` | `&str` (borrowed params) or `String` (owned struct fields) |
+| `snprintf(buf, ...)` | `format!()` or `impl Display` |
+| `qsort(ptr, len, ...)` | `Vec::sort_by()` / `sort_unstable_by()` — safe, no UB |
+| `gmtime_r` / `gmtime` | `chrono::NaiveDate` — inherently thread-safe, no global state |
+
 ---
 
 ## 3. Domain Model
 
-All structures in this section are language-neutral interface definitions. Field
-names use `snake_case`. Types use abstract names (`string`, `float64`, `int64`,
-`timestamp`, `bool`).
+All structures in this section are concrete Rust type definitions. Structs
+derive `Debug, Clone` at minimum. Fields use `String` for owned text,
+`NaiveDate` for dates, `f64` for prices/amounts, `i64` for quantities,
+and `usize` for counts.
 
 ### 3.1 OHLCV (Price Bar)
 
-```
-OhlcvBar:
-    code:     string      # Stock symbol (e.g., "AAPL", "BHP")
-    exchange: string      # Exchange identifier (e.g., "US", "ASX")
-    date:     timestamp   # Daily resolution (midnight UTC)
-    open:     float64
-    high:     float64
-    low:      float64
-    close:    float64
-    volume:   int64
-```
+```rust
+#[derive(Debug, Clone)]
+pub struct OhlcvBar {
+    pub code: String,       // Stock symbol (e.g., "AAPL", "BHP")
+    pub exchange: String,   // Exchange identifier (e.g., "US", "ASX")
+    pub date: NaiveDate,    // Daily resolution
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: i64,
+}
 
-Derived values:
-- **Typical price**: `(high + low + close) / 3`
-- **True range**: `max(high - low, |high - prev_close|, |low - prev_close|)`
+impl OhlcvBar {
+    /// (high + low + close) / 3
+    pub fn typical_price(&self) -> f64 {
+        (self.high + self.low + self.close) / 3.0
+    }
+
+    /// max(high - low, |high - prev_close|, |low - prev_close|)
+    pub fn true_range(&self, prev_close: f64) -> f64 {
+        let hl = self.high - self.low;
+        let hc = (self.high - prev_close).abs();
+        let lc = (self.low - prev_close).abs();
+        hl.max(hc).max(lc)
+    }
+}
+```
 
 ### 3.2 Position
 
-```
-Position:
-    code:        string
-    exchange:    string
-    quantity:    int64       # Positive = long, negative = short
-    entry_price: float64
-    entry_date:  timestamp
-    stop_loss:   float64    # Trigger price; 0 = disabled
-    take_profit: float64    # Trigger price; 0 = disabled
-```
+```rust
+#[derive(Debug, Clone)]
+pub struct Position {
+    pub code: String,
+    pub exchange: String,
+    pub quantity: i64,        // Positive = long, negative = short
+    pub entry_price: f64,
+    pub entry_date: NaiveDate,
+    pub stop_loss: f64,       // Trigger price; 0.0 = disabled
+    pub take_profit: f64,     // Trigger price; 0.0 = disabled
+}
 
-Derived:
-- `is_long()`: `quantity > 0`
-- `is_short()`: `quantity < 0`
-- `market_value(price)`: `|quantity| * price`
-- `unrealized_pnl(price)`: `quantity * (price - entry_price)`
-- `should_stop_loss(price)`: For longs: `price <= stop_loss`; for shorts:
-  `price >= stop_loss`. Always false if `stop_loss == 0`.
-- `should_take_profit(price)`: For longs: `price >= take_profit`; for shorts:
-  `price <= take_profit`. Always false if `take_profit == 0`.
+impl Position {
+    pub fn is_long(&self) -> bool { self.quantity > 0 }
+    pub fn is_short(&self) -> bool { self.quantity < 0 }
+    pub fn market_value(&self, price: f64) -> f64 { self.quantity.unsigned_abs() as f64 * price }
+    pub fn unrealized_pnl(&self, price: f64) -> f64 { self.quantity as f64 * (price - self.entry_price) }
+
+    pub fn should_stop_loss(&self, price: f64) -> bool {
+        if self.stop_loss == 0.0 { return false; }
+        if self.is_long() { price <= self.stop_loss } else { price >= self.stop_loss }
+    }
+
+    pub fn should_take_profit(&self, price: f64) -> bool {
+        if self.take_profit == 0.0 { return false; }
+        if self.is_long() { price >= self.take_profit } else { price <= self.take_profit }
+    }
+}
+```
 
 ### 3.3 Closed Trade
 
-```
-ClosedTrade:
-    code:        string
-    exchange:    string
-    quantity:    int64       # Positive = long, negative = short
-    entry_price: float64
-    exit_price:  float64
-    entry_date:  timestamp
-    exit_date:   timestamp
-    pnl:         float64    # Realised profit/loss (after commissions)
+```rust
+#[derive(Debug, Clone)]
+pub struct ClosedTrade {
+    pub code: String,
+    pub exchange: String,
+    pub quantity: i64,        // Positive = long, negative = short
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub entry_date: NaiveDate,
+    pub exit_date: NaiveDate,
+    pub pnl: f64,             // Realised profit/loss (after commissions)
+}
 ```
 
 ### 3.4 Equity Point
 
-```
-EquityPoint:
-    date:   timestamp
-    equity: float64     # Total portfolio value at this timestamp
+```rust
+#[derive(Debug, Clone)]
+pub struct EquityPoint {
+    pub date: NaiveDate,
+    pub equity: f64,          // Total portfolio value at this date
+}
 ```
 
 ### 3.5 Portfolio
 
-```
-Portfolio:
-    cash:            float64
-    initial_capital: float64
-    positions:       Map<string, Position>       # Keyed by code
-    closed_trades:   Vec<ClosedTrade>
-    equity_curve:    Vec<EquityPoint>
-```
+```rust
+use std::collections::HashMap;
 
-Operations:
-- `add_position(position)`: Insert or replace by code
-- `get_position(code) -> Option<Position>`
-- `has_position(code) -> bool`
-- `remove_position(code) -> bool`
-- `position_count() -> int`: Total open positions across all codes
-- `record_trade(trade)`
-- `record_equity(date, equity)`
-- `total_equity(price_map: Map<string, float64>) -> float64`:
-  `cash + sum(|pos.quantity| * price_map[pos.code] for each position)`
+#[derive(Debug, Clone)]
+pub struct Portfolio {
+    pub cash: f64,
+    pub initial_capital: f64,
+    pub positions: HashMap<String, Position>,   // Keyed by code
+    pub closed_trades: Vec<ClosedTrade>,
+    pub equity_curve: Vec<EquityPoint>,
+}
+
+impl Portfolio {
+    pub fn add_position(&mut self, position: Position) {
+        self.positions.insert(position.code.clone(), position);
+    }
+
+    pub fn get_position(&self, code: &str) -> Option<&Position> {
+        self.positions.get(code)
+    }
+
+    pub fn has_position(&self, code: &str) -> bool {
+        self.positions.contains_key(code)
+    }
+
+    /// Returns the removed position, or None if not found.
+    pub fn remove_position(&mut self, code: &str) -> Option<Position> {
+        self.positions.remove(code)
+    }
+
+    pub fn position_count(&self) -> usize {
+        self.positions.len()
+    }
+
+    pub fn record_trade(&mut self, trade: ClosedTrade) {
+        self.closed_trades.push(trade);
+    }
+
+    pub fn record_equity(&mut self, date: NaiveDate, equity: f64) {
+        self.equity_curve.push(EquityPoint { date, equity });
+    }
+
+    pub fn total_equity(&self, price_map: &HashMap<String, f64>) -> f64 {
+        let position_value: f64 = self.positions.values()
+            .filter_map(|pos| price_map.get(&pos.code).map(|&price| pos.market_value(price)))
+            .sum();
+        self.cash + position_value
+    }
+}
+```
 
 ### 3.6 Strategy
 
-```
-Strategy:
-    name:            string
-    description:     string
-    entry_long:      Rule            # Required
-    exit_long:       Rule            # Required
-    entry_short:     Option<Rule>    # NULL/None if long-only
-    exit_short:      Option<Rule>    # NULL/None if long-only
-    position_size:   float64         # Fraction of portfolio (0.0–1.0)
-    stop_loss_pct:   float64         # Percentage below/above entry (0 = none)
-    take_profit_pct: float64         # Percentage above/below entry (0 = none)
-    max_positions:   int             # Maximum concurrent open positions
+```rust
+#[derive(Debug, Clone)]
+pub struct Strategy {
+    pub name: String,
+    pub description: String,
+    pub entry_long: Rule,              // Required
+    pub exit_long: Rule,               // Required
+    pub entry_short: Option<Rule>,     // None if long-only
+    pub exit_short: Option<Rule>,      // None if long-only
+    pub position_size: f64,            // Fraction of portfolio (0.0–1.0)
+    pub stop_loss_pct: f64,            // Percentage below/above entry (0.0 = none)
+    pub take_profit_pct: f64,          // Percentage above/below entry (0.0 = none)
+    pub max_positions: usize,          // Maximum concurrent open positions
+}
 ```
 
 ### 3.7 Backtest Configuration
 
-```
-BacktestConfig:
-    start_date:           timestamp
-    end_date:             timestamp
-    initial_capital:      float64
-    commission_per_trade: float64     # Flat fee per trade
-    commission_pct:       float64     # Percentage of trade value
-    slippage_pct:         float64     # Price slippage simulation
-    allow_shorting:       bool
-    risk_free_rate:       float64     # Annual rate (e.g. 0.05 for 5%)
+```rust
+#[derive(Debug, Clone)]
+pub struct BacktestConfig {
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub initial_capital: f64,
+    pub commission_per_trade: f64,     // Flat fee per trade
+    pub commission_pct: f64,           // Percentage of trade value
+    pub slippage_pct: f64,             // Price slippage simulation
+    pub allow_shorting: bool,
+    pub risk_free_rate: f64,           // Annual rate (e.g. 0.05 for 5%)
+}
 ```
 
 ---
@@ -283,31 +404,60 @@ they are required in the reimplementation. *(Review fix #3.6)*
 
 ### 4.2 Indicator Value Types
 
-Indicators use a tagged union to handle varying output shapes:
+Indicators use a Rust enum to handle varying output shapes:
 
-```
-IndicatorValue:
-    date:  timestamp
-    valid: bool
-    type:  IndicatorType
-    data:  one of:
-        SimpleValue:      { value: float64 }
-        MacdValue:        { line: float64, signal: float64, histogram: float64 }
-        StochasticValue:  { k: float64, d: float64 }
-        BollingerValue:   { upper: float64, middle: float64, lower: float64 }
-        PivotValue:       { pivot: float64, r1-r3: float64, s1-s3: float64 }
+```rust
+#[derive(Debug, Clone)]
+pub struct IndicatorPoint {
+    pub date: NaiveDate,
+    pub valid: bool,
+    pub value: IndicatorValue,
+}
+
+#[derive(Debug, Clone)]
+pub enum IndicatorValue {
+    Simple(f64),
+    Macd { line: f64, signal: f64, histogram: f64 },
+    Stochastic { k: f64, d: f64 },
+    Bollinger { upper: f64, middle: f64, lower: f64 },
+    Pivot { pivot: f64, r1: f64, r2: f64, r3: f64, s1: f64, s2: f64, s3: f64 },
+}
 ```
 
 Single-value indicators (SMA, EMA, WMA, RSI, ROC, ATR, STDDEV, OBV, VWAP)
-use `SimpleValue`. Multi-output indicators use their respective structs.
+use `IndicatorValue::Simple`. Multi-output indicators use their respective
+variants.
 
-### 4.3 Indicator Series
+### 4.3 Indicator Type & Series
 
-```
-IndicatorSeries:
-    type:   IndicatorType
-    params: IndicatorParams { period, param2, param3, param_double }
-    values: Vec<IndicatorValue>
+The `IndicatorType` enum encodes indicator identity + parameters. It derives
+`Hash + Eq` and serves directly as a `HashMap` key — **replacing string key
+generation** for lookups. String representations are only needed for
+human-readable output (via `impl Display`).
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IndicatorType {
+    Sma(usize),
+    Ema(usize),
+    Wma(usize),
+    Rsi(usize),
+    Roc(usize),
+    Atr(usize),
+    Stddev(usize),
+    Obv,
+    Vwap,
+    Macd { fast: usize, slow: usize, signal: usize },
+    Stochastic { k_period: usize, d_period: usize },
+    Bollinger { period: usize, stddev_mult_x100: u32 },
+    Pivot,
+}
+
+#[derive(Debug, Clone)]
+pub struct IndicatorSeries {
+    pub indicator_type: IndicatorType,
+    pub values: Vec<IndicatorPoint>,
+}
 ```
 
 ### 4.4 Calculation Specifications
@@ -479,19 +629,23 @@ First bar is invalid (no previous data).
 ### 4.5 Indicator Caching
 
 Indicators are pre-computed once per code before the backtest loop begins.
-Indicator series are stored in a map keyed by a string derived from the
-indicator type and parameters:
+Indicator series are stored in a `HashMap<IndicatorType, IndicatorSeries>`.
+Since `IndicatorType` derives `Hash + Eq`, it serves directly as the map key
+— no string key generation is needed for lookups.
+
+String key generation (via `impl Display for IndicatorType`) is only used for
+human-readable output (logs, reports, debug formatting):
 
 ```
-Key format:
-    SMA(20)                 → "SMA_20"
-    MACD(12,26,9)           → "MACD_12_26_9"
-    BOLLINGER(20,2.0)       → "BOLLINGER_20_200"    # stddev * 100
-    PIVOT                   → "PIVOT"
+Display format examples:
+    IndicatorType::Sma(20)                            → "SMA(20)"
+    IndicatorType::Macd { fast: 12, slow: 26, .. }    → "MACD(12,26,9)"
+    IndicatorType::Bollinger { period: 20, .. }        → "BOLLINGER(20,2.0)"
+    IndicatorType::Pivot                               → "PIVOT"
 ```
 
-The key generation function must be consistent between rule parsing and
-indicator pre-computation (shared via an `indicator_helpers` module).
+The key generation is consistent between rule parsing and indicator
+pre-computation (shared via the `indicator_helpers` module).
 *(Review fix #1: eliminates DRY violation)*
 
 ---
@@ -584,34 +738,63 @@ Whitespace is allowed between tokens. Parsing is case-sensitive for keywords.
 
 ### 5.4 AST Structure
 
+```rust
+#[derive(Debug, Clone)]
+pub enum Operand {
+    Open,
+    High,
+    Low,
+    Close,
+    Volume,
+    Constant(f64),
+    Indicator(IndicatorRef),
+}
+
+#[derive(Debug, Clone)]
+pub struct IndicatorRef {
+    pub indicator_type: IndicatorType,
+    pub field: IndicatorField,
+}
+
+#[derive(Debug, Clone)]
+pub enum IndicatorField {
+    /// For single-value indicators (SMA, EMA, WMA, RSI, ROC, ATR, STDDEV, OBV, VWAP)
+    Value,
+    /// MACD fields
+    MacdLine,
+    MacdSignal,
+    MacdHistogram,
+    /// Stochastic fields
+    StochasticK,
+    StochasticD,
+    /// Bollinger Bands fields
+    BollingerUpper,
+    BollingerMiddle,
+    BollingerLower,
+    /// Pivot Point fields
+    Pivot,
+    R1, R2, R3,
+    S1, S2, S3,
+}
+
+#[derive(Debug, Clone)]
+pub enum Rule {
+    CrossAbove { left: Operand, right: Operand },
+    CrossBelow { left: Operand, right: Operand },
+    Above { left: Operand, right: Operand },
+    Below { left: Operand, right: Operand },
+    Between { operand: Operand, lower: f64, upper: f64 },
+    Equals { left: Operand, right: Operand },
+    And(Vec<Rule>),
+    Or(Vec<Rule>),
+    Not(Box<Rule>),
+    Consecutive { rule: Box<Rule>, count: usize },
+    AnyOf { rule: Box<Rule>, count: usize },
+}
 ```
-Operand:
-    type: one of PRICE_OPEN | PRICE_HIGH | PRICE_LOW | PRICE_CLOSE
-                 | VOLUME | INDICATOR | CONSTANT
-    data: one of:
-        constant:  float64
-        indicator: { type: IndicatorType, period: int, param2: int, param3: int }
 
-Rule:
-    type:      RuleType
-    left:      Operand           # For comparison rules
-    right:     Operand           # For comparison rules
-    threshold: float64           # Upper bound for BETWEEN
-    lookback:  int               # N for CONSECUTIVE, ANY_OF
-    children:  Vec<Rule>         # For AND, OR (2+ children)
-    child:     Option<Rule>      # For NOT, CONSECUTIVE, ANY_OF
-```
-
-#### Operand Encoding for Multi-Output Indicators
-
-- **Bollinger bands**: The operand's `indicator.type` is `BOLLINGER`, with
-  `param2` encoding the stddev multiplier as `(int)(stddev * 100)` (e.g.,
-  2.0 → 200), and `param3` encoding the band selector (0=upper, 1=middle,
-  2=lower).
-- **Pivot points**: The operand's `indicator.type` is `PIVOT`, with `param2`
-  encoding the field selector (0=pivot, 1=R1, 2=R2, 3=R3, 4=S1, 5=S2, 6=S3).
-- **MACD**: `period` = fast, `param2` = slow, `param3` = signal.
-- **Stochastic**: `period` = K, `param2` = D.
+Note: `Box<Rule>` for recursive variants (`Not`, `Consecutive`, `AnyOf`),
+`Vec<Rule>` for variadic composites (`And`, `Or`).
 
 ### 5.5 Parser Requirements
 
@@ -622,10 +805,25 @@ messages on failure, including: *(Review fix #12)*
 2. **What was expected** (e.g., "expected ')' after operand")
 3. **What was found** (the actual token or character)
 
-```
-Parse result:
-    success: Rule (the parsed AST)
-    failure: ParseError { message: string, position: int }
+Return type: `Result<Rule, ParseError>`
+
+```rust
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("parse error at position {position}: {message}")]
+pub struct ParseError {
+    pub message: String,
+    pub position: usize,
+}
+
+impl ParseError {
+    /// Format with a caret pointing to the error position in the input.
+    pub fn display_with_context(&self, input: &str) -> String {
+        format!(
+            "Error at position {}: {}\n  {}\n  {}^",
+            self.position, self.message, input, " ".repeat(self.position)
+        )
+    }
+}
 ```
 
 Example error output:
@@ -642,8 +840,13 @@ The parser MUST:
 
 ### 5.6 Rule Evaluation
 
-```
-evaluate(rule, ohlcv_bars, indicators_map, bar_index) -> bool
+```rust
+pub fn evaluate(
+    rule: &Rule,
+    ohlcv: &[OhlcvBar],
+    indicators: &HashMap<IndicatorType, IndicatorSeries>,
+    bar_index: usize,
+) -> bool
 ```
 
 The evaluator:
@@ -745,11 +948,16 @@ each code has sufficient data for backtesting.
 
 ### 7.2 Data Structure
 
-```
-Universe:
-    codes:    Vec<string>    # Validated code symbols
-    count:    int            # Number of codes
-    exchange: string         # Shared exchange identifier
+```rust
+#[derive(Debug, Clone)]
+pub struct Universe {
+    pub codes: Vec<String>,    // Validated code symbols
+    pub exchange: String,      // Shared exchange identifier
+}
+
+impl Universe {
+    pub fn count(&self) -> usize { self.codes.len() }
+}
 ```
 
 ### 7.3 Parsing Specification
@@ -771,8 +979,8 @@ Rules:
 
 For each code in the universe:
 1. Fetch OHLCV data for the code, exchange, and date range from the data port
-2. If the fetch returns null or fewer than `MIN_OHLCV_BARS` (30) bars: print a
-   warning to stderr and remove the code from the universe
+2. If the fetch returns an empty `Vec` or fewer than `MIN_OHLCV_BARS` (30)
+   bars: print a warning to stderr and remove the code from the universe
 3. If **all** codes fail validation: return error (exit code 5)
 4. If **some** codes fail: continue with the valid subset and print a summary
 
@@ -791,26 +999,35 @@ Backtesting 8 of 10 codes on ASX
 The backtest loop is a **domain function**, not inline in the CLI. This makes
 it testable without CLI scaffolding and reusable by library consumers.
 
-```
-run_backtest(
-    code_data:    Vec<CodeData>,     # Per-code OHLCV + indicators
-    date_indices: Vec<Map<timestamp, int>>,  # Per-code date→bar-index lookup
-    timeline:     Vec<timestamp>,    # Unified sorted date timeline
-    strategy:     Strategy,
-    config:       BacktestConfig
+```rust
+pub fn run_backtest(
+    code_data: &[CodeData],
+    timeline: &[NaiveDate],
+    strategy: &Strategy,
+    config: &BacktestConfig,
 ) -> BacktestResult
 ```
 
 Where `CodeData` is:
 
+```rust
+#[derive(Debug, Clone)]
+pub struct CodeData {
+    pub code: String,
+    pub exchange: String,
+    pub ohlcv: Vec<OhlcvBar>,
+    pub indicators: HashMap<IndicatorType, IndicatorSeries>,
+    pub date_index: HashMap<NaiveDate, usize>,  // Date → bar-index lookup
+}
+
+impl CodeData {
+    pub fn bar_count(&self) -> usize { self.ohlcv.len() }
+}
 ```
-CodeData:
-    code:       string
-    exchange:   string
-    ohlcv:      Vec<OhlcvBar>
-    indicators: Map<string, IndicatorSeries>   # Keyed by indicator key
-    bar_count:  int
-```
+
+Note: `date_index` is folded into `CodeData` (each code owns its own
+date-to-bar-index mapping). `NaiveDate` is used directly as a `HashMap` key
+(it implements `Hash + Eq`) — no string conversion needed.
 
 ### 8.2 Date Timeline
 
@@ -821,8 +1038,8 @@ timeline:
 2. Sort chronologically
 3. For each date, only evaluate codes that have a bar on that date
 
-Each `CodeData` maintains a date-to-bar-index map for O(1) lookup during the
-backtest loop.
+Each `CodeData` maintains a `date_index: HashMap<NaiveDate, usize>` for O(1)
+lookup during the backtest loop.
 
 ### 8.3 Backtest Loop (Pseudocode)
 
@@ -943,30 +1160,32 @@ commissions).
 
 ### 10.1 Portfolio-Level Metrics *(the `Metrics` struct)*
 
-```
-Metrics:
-    # Return metrics
-    total_return:           float64   # (final - initial) / initial
-    annualized_return:      float64   # (1 + total_return)^(252/trading_days) - 1
+```rust
+#[derive(Debug, Clone)]
+pub struct Metrics {
+    // Return metrics
+    pub total_return: f64,             // (final - initial) / initial
+    pub annualized_return: f64,        // (1 + total_return)^(252/trading_days) - 1
 
-    # Risk metrics
-    sharpe_ratio:           float64   # (mean_daily - rf_daily) / stddev_daily * sqrt(252)
-    sortino_ratio:          float64   # (mean_daily - rf_daily) / downside_dev * sqrt(252)
-    max_drawdown:           float64   # Largest peak-to-trough decline (fraction)
-    max_drawdown_duration:  float64   # Days of longest drawdown period
+    // Risk metrics
+    pub sharpe_ratio: f64,             // (mean_daily - rf_daily) / stddev_daily * sqrt(252)
+    pub sortino_ratio: f64,            // (mean_daily - rf_daily) / downside_dev * sqrt(252)
+    pub max_drawdown: f64,             // Largest peak-to-trough decline (fraction)
+    pub max_drawdown_duration: f64,    // Days of longest drawdown period
 
-    # Trade statistics
-    total_trades:           int
-    winning_trades:         int       # PnL > 0
-    losing_trades:          int       # PnL < 0
-    break_even_trades:      int       # PnL == 0 (NEW — review fix #11)
-    win_rate:               float64   # winning_trades / total_trades
-    profit_factor:          float64   # sum(wins) / |sum(losses)|
-    average_win:            float64   # mean PnL of winning trades
-    average_loss:           float64   # mean PnL of losing trades (negative)
-    largest_win:            float64
-    largest_loss:           float64   # Most negative
-    average_trade_duration: float64   # Mean days between entry and exit
+    // Trade statistics
+    pub total_trades: usize,
+    pub winning_trades: usize,         // PnL > 0
+    pub losing_trades: usize,          // PnL < 0
+    pub break_even_trades: usize,      // PnL == 0 (review fix #11)
+    pub win_rate: f64,                 // winning_trades / total_trades
+    pub profit_factor: f64,            // sum(wins) / |sum(losses)|
+    pub average_win: f64,              // mean PnL of winning trades
+    pub average_loss: f64,             // mean PnL of losing trades (negative)
+    pub largest_win: f64,
+    pub largest_loss: f64,             // Most negative
+    pub average_trade_duration: f64,   // Mean days between entry and exit
+}
 ```
 
 ### 10.2 Metric Formulas
@@ -1033,38 +1252,50 @@ If no losses: INFINITY (when wins > 0), else 0.
 For multi-code backtests, per-code metrics are computed by filtering closed
 trades by code:
 
-```
-CodeResult:
-    code:           string
-    exchange:       string
-    total_trades:   int
-    winning_trades: int
-    losing_trades:  int
-    total_pnl:      float64
-    win_rate:       float64
-    largest_win:    float64
-    largest_loss:   float64
+```rust
+#[derive(Debug, Clone)]
+pub struct CodeResult {
+    pub code: String,
+    pub exchange: String,
+    pub total_trades: usize,
+    pub winning_trades: usize,
+    pub losing_trades: usize,
+    pub total_pnl: f64,
+    pub win_rate: f64,
+    pub largest_win: f64,
+    pub largest_loss: f64,
+}
 ```
 
 ---
 
 ## 11. Ports & Adapters
 
-### 11.1 Data Port (Interface)
+### 11.1 Data Port (Trait)
 
-```
-interface DataPort:
-    fetch_ohlcv(code, exchange, start_date, end_date) -> Vec<OhlcvBar>
-    list_symbols(exchange) -> Vec<string>
-    close()
+```rust
+pub trait DataPort {
+    fn fetch_ohlcv(
+        &self,
+        code: &str,
+        exchange: &str,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<OhlcvBar>, SamtraderError>;
+
+    fn list_symbols(&self, exchange: &str) -> Result<Vec<String>, SamtraderError>;
+}
 ```
 
-#### PostgreSQL Adapter (Default)
+No `close()` method — Rust `Drop` handles cleanup automatically.
+No arena parameters — methods return owned data.
+
+#### PostgreSQL Adapter (Default, Feature-Gated)
 
 - Uses parameterised queries (`$1`, `$2`, etc.) — never string concatenation
   into SQL *(preserves SQL injection prevention)*
-- Uses thread-safe time functions (`gmtime_r` not `gmtime`)
-  *(Review fix #6)*
+- Feature-gated: only compiled when `postgres` feature is enabled
+  (`#[cfg(feature = "postgres")]`)
 - Connection string format: `host=... dbname=... user=... password=...`
 
 Database schema:
@@ -1083,39 +1314,54 @@ CREATE TABLE public.ohlcv (
 
 #### CSV Adapter *(New — Review fix Priority 3)*
 
-- Implements the same `DataPort` interface
+- Implements the same `DataPort` trait
 - Reads OHLCV data from CSV files
 - File naming convention: `{code}_{exchange}.csv` or configurable
 - Column format: `date,open,high,low,close,volume`
 - Removes the hard PostgreSQL dependency for simple use cases
 
-### 11.2 Config Port (Interface)
+### 11.2 Config Port (Trait)
 
+```rust
+pub trait ConfigPort {
+    fn get_string(&self, section: &str, key: &str) -> Option<String>;
+    fn get_int(&self, section: &str, key: &str, default: i64) -> i64;
+    fn get_double(&self, section: &str, key: &str, default: f64) -> f64;
+    fn get_bool(&self, section: &str, key: &str, default: bool) -> bool;
+}
 ```
-interface ConfigPort:
-    get_string(section, key) -> Option<string>
-    get_int(section, key, default) -> int
-    get_double(section, key, default) -> float64
-    get_bool(section, key, default) -> bool
-    close()
-```
+
+No `close()` method — Rust `Drop` handles cleanup automatically.
 
 #### File Config Adapter
 
 Reads INI-format configuration files. See Section 6 for the full format
 specification.
 
-### 11.3 Report Port (Interface)
+### 11.3 Report Port (Trait)
 
-```
-interface ReportPort:
-    write(result: BacktestResult, strategy: Strategy, output_path: string) -> bool
-    write_multi(result: MultiCodeResult, strategy: Strategy, output_path: string) -> bool
-    close()
+```rust
+pub trait ReportPort {
+    fn write(
+        &self,
+        result: &BacktestResult,
+        strategy: &Strategy,
+        output_path: &str,
+    ) -> Result<(), SamtraderError>;
+
+    /// Default implementation: falls back to `write` using only the aggregate result.
+    fn write_multi(
+        &self,
+        result: &MultiCodeResult,
+        strategy: &Strategy,
+        output_path: &str,
+    ) -> Result<(), SamtraderError> {
+        self.write(&result.aggregate, strategy, output_path)
+    }
+}
 ```
 
-If `write_multi` is not implemented by an adapter, the caller falls back to
-`write` using only the aggregate result.
+No `close()` method — Rust `Drop` handles cleanup automatically.
 
 #### Typst Report Adapter (Default)
 
@@ -1123,10 +1369,10 @@ Split into focused submodules: *(Review fix #3)*
 
 | Submodule | Responsibility |
 |---|---|
-| `adapter` | Port implementation, placeholder resolution, orchestration |
-| `chart_svg` | Inline SVG equity curve and drawdown charts |
-| `tables` | Monthly returns heatmap, trade log, universe summary table |
-| `default_template` | Built-in Typst report markup with `{{PLACEHOLDER}}` substitution |
+| `mod.rs` | Port implementation, placeholder resolution, orchestration |
+| `chart_svg.rs` | Inline SVG equity curve and drawdown charts |
+| `tables.rs` | Monthly returns heatmap, trade log, universe summary table |
+| `default_template.rs` | Built-in Typst report markup with `{{PLACEHOLDER}}` substitution |
 
 Custom templates are supported via `template_path` in `[report]` config.
 
@@ -1198,7 +1444,74 @@ samtrader info --code CODE --exchange EXCHANGE [-c config.ini]
 samtrader info -c config.ini   # Show info for all codes in config
 ```
 
-### 13.2 The `--dry-run` Flag *(Review fix Priority 3)*
+### 13.2 Clap Derive Structure
+
+```rust
+use clap::{Parser, Subcommand};
+use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(name = "samtrader", about = "Algorithmic trading backtester")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run a backtest
+    Backtest {
+        #[arg(short, long)]
+        config: String,
+        #[arg(short, long)]
+        strategy: Option<String>,
+        #[arg(short, long)]
+        output: Option<String>,
+        #[arg(long)]
+        code: Option<String>,
+        #[arg(long)]
+        exchange: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List available symbols on an exchange
+    ListSymbols {
+        #[arg(long)]
+        exchange: String,
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+    /// Validate a strategy configuration
+    Validate {
+        #[arg(short, long)]
+        strategy: String,
+    },
+    /// Show data range for symbol(s)
+    Info {
+        #[arg(long)]
+        code: Option<String>,
+        #[arg(long)]
+        exchange: Option<String>,
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+}
+
+impl From<&SamtraderError> for ExitCode {
+    fn from(err: &SamtraderError) -> ExitCode {
+        let code = match err {
+            SamtraderError::Config { .. } => 2,
+            SamtraderError::Database { .. } => 3,
+            SamtraderError::RuleParse(_) => 4,
+            SamtraderError::InsufficientData { .. } => 5,
+            _ => 1,
+        };
+        ExitCode::from(code)
+    }
+}
+```
+
+### 13.3 The `--dry-run` Flag *(Review fix Priority 3)*
 
 When `--dry-run` is specified on the `backtest` command:
 
@@ -1212,7 +1525,7 @@ When `--dry-run` is specified on the `backtest` command:
 This enables debugging configuration and strategy issues without requiring a
 database connection.
 
-### 13.3 Exit Codes
+### 13.4 Exit Codes
 
 | Code | Meaning |
 |---|---|
@@ -1223,7 +1536,7 @@ database connection.
 | 4 | Invalid strategy (parse error, missing rules) |
 | 5 | Insufficient data (< 30 bars for all codes) |
 
-### 13.4 Console Output (Multi-Code Backtest)
+### 13.5 Console Output (Multi-Code Backtest)
 
 ```
 Loading strategy: Multi-Code SMA Crossover
@@ -1259,28 +1572,60 @@ output (if any) goes to stdout.
 
 ### 14.1 Error Types
 
+```rust
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SamtraderError {
+    #[error("database connection failed: {reason}")]
+    Database { reason: String },
+
+    #[error("database query failed: {reason}")]
+    DatabaseQuery { reason: String },
+
+    #[error("config parse error in {file}: {reason}")]
+    ConfigParse { file: String, reason: String },
+
+    #[error("missing config key [{section}] {key}")]
+    ConfigMissing { section: String, key: String },
+
+    #[error("invalid config value [{section}] {key}: {reason}")]
+    ConfigInvalid { section: String, key: String, reason: String },
+
+    #[error(transparent)]
+    RuleParse(#[from] ParseError),
+
+    #[error("invalid rule: {reason}")]
+    RuleInvalid { reason: String },
+
+    #[error("no data found for {code}.{exchange}")]
+    NoData { code: String, exchange: String },
+
+    #[error("insufficient data for {code}.{exchange}: {bars} bars (minimum {minimum})")]
+    InsufficientData { code: String, exchange: String, bars: usize, minimum: usize },
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
 ```
-ErrorType:
-    NONE
-    NULL_PARAM              # Null argument passed to function
-    MEMORY                  # Allocation failure
-    DB_CONNECTION           # Database connection failed
-    DB_QUERY                # Database query failed
-    CONFIG_PARSE            # Config file syntax error
-    CONFIG_MISSING          # Required config key missing
-    CONFIG_INVALID          # Config value out of valid range
-    RULE_PARSE              # Rule syntax error
-    RULE_INVALID            # Semantically invalid rule
-    NO_DATA                 # No data returned from source
-    INSUFFICIENT_DATA       # < MIN_OHLCV_BARS
-    IO                      # File I/O error
-```
+
+Removed from the C version:
+- `NONE` → use `Result::Ok`
+- `MEMORY` → Rust aborts on OOM; not an application-level concern
+- `NULL_PARAM` → the type system prevents null arguments at compile time
+
+All variants carry structured context fields (not just strings). The
+`#[from]` attribute on `ParseError` and `std::io::Error` enables automatic
+conversion via the `?` operator.
+
+Error callback concept (from the C version) is removed entirely — errors
+propagate via `Result<T, SamtraderError>` and `?`.
 
 ### 14.2 Error Reporting
 
-Each error type has a human-readable string representation. The error
-infrastructure is a **dedicated module** (not buried in another domain
-module). *(Review fix #2)*
+Each error variant has a human-readable `Display` implementation generated by
+`thiserror`. The error infrastructure is a **dedicated module** (`error.rs`),
+not buried in another domain module. *(Review fix #2)*
 
 ### 14.3 Parser Error Messages *(Review fix #12)*
 
@@ -1289,8 +1634,8 @@ Rule parse errors MUST include:
 2. Description of what was expected
 3. Description of what was found
 
-The error message is surfaced through the parse result, and the CLI formats
-it for the user with a caret pointing to the error position.
+The `ParseError` struct (Section 5.5) provides `display_with_context()` for
+caret-style output. The CLI formats this for the user.
 
 ### 14.4 Multi-Code Error Behaviour
 
@@ -1310,9 +1655,12 @@ it for the user with a caret pointing to the error position.
 
 ### 15.1 Unit Tests
 
+Unit tests live in `#[cfg(test)] mod tests` blocks within each source file.
+Use `assert_relative_eq!` from the `approx` crate for f64 comparisons.
+
 | Module | Test Focus |
 |---|---|
-| Indicators | Verify against hand-calculated values with epsilon comparison |
+| Indicators | Verify against hand-calculated values with `assert_relative_eq!` |
 | Rule parser | Valid inputs, malformed inputs, whitespace handling, nesting depth, error messages |
 | Rule evaluation | Edge cases (index 0 for crossover, warmup periods, all rule types) |
 | Portfolio | Add/remove positions, equity calculation, trade recording |
@@ -1323,6 +1671,9 @@ it for the user with a caret pointing to the error position.
 | Config | INI parsing, type coercion, default values, validation rules |
 
 ### 15.2 Integration Tests
+
+Integration tests live in the `tests/` directory. Mock adapters are plain
+structs that implement the port traits — no mocking framework needed.
 
 - Full backtest pipeline with mock data port (no database)
 - Multi-code backtest with known trades — verify per-code PnL
@@ -1339,6 +1690,28 @@ it for the user with a caret pointing to the error position.
 
 ### 15.4 Property-Based Tests
 
+Use `proptest!` macro from the `proptest` crate:
+
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn rsi_is_bounded(values in prop::collection::vec(1.0..1000.0f64, 20..100)) {
+        let bars = make_bars_from_closes(&values);
+        let series = compute_rsi(&bars, 14);
+        for point in &series.values {
+            if point.valid {
+                if let IndicatorValue::Simple(v) = point.value {
+                    prop_assert!(v >= 0.0 && v <= 100.0);
+                }
+            }
+        }
+    }
+}
+```
+
+Property invariants to test:
 - Portfolio invariant: `cash + sum(position_market_values) == total_equity`
 - Indicator bounds: RSI ∈ [0, 100], Stochastic %K ∈ [0, 100]
 - Drawdown ∈ [0, 1]
@@ -1350,18 +1723,21 @@ it for the user with a caret pointing to the error position.
 
 ## 16. Implementation Phases
 
-Suggested build order for the reimplementation:
+Suggested build order for the Rust reimplementation:
 
 ### Phase 1: Core Infrastructure
-1. Project structure, build system, library target
-2. OHLCV data structures
-3. Error types and reporting module
-4. Config port interface + file config adapter (INI parsing)
+1. `Cargo.toml` with `[lib]` + `[[bin]]` targets, module hierarchy, `lib.rs`
+   re-exports
+2. OHLCV data structures (`domain/ohlcv.rs`)
+3. Error types with `thiserror` derives (`domain/error.rs`)
+4. Config port trait + file config adapter (INI parsing via `configparser`)
 5. Config validation
 6. Basic unit tests
+7. CI: `cargo build`, `cargo test`, `cargo clippy`, `cargo fmt --check`
 
 ### Phase 2: Indicators
-1. Indicator value types (tagged union)
+1. Indicator value types (`IndicatorValue` enum, `IndicatorPoint`,
+   `IndicatorType`, `IndicatorSeries`)
 2. SMA, EMA, WMA (trend indicators)
 3. RSI (momentum)
 4. MACD, Stochastic (multi-output momentum)
@@ -1369,22 +1745,22 @@ Suggested build order for the reimplementation:
 6. OBV, VWAP (volume)
 7. Pivot Points (support/resistance)
 8. ROC (momentum)
-9. Indicator series and caching
+9. Indicator caching with `HashMap<IndicatorType, IndicatorSeries>`
 10. Indicator helpers (shared pre-computation logic)
 11. Comprehensive indicator tests
 
 ### Phase 3: Rule System
-1. Rule AST data structures
+1. Rule AST data structures (`Rule`, `Operand`, `IndicatorRef` enums)
 2. Operand types and construction
-3. Rule parser with error reporting
+3. Rule parser with `ParseError` error reporting
 4. Comparison rule evaluation
 5. Composite rule evaluation (AND, OR, NOT)
 6. Temporal rule evaluation (CONSECUTIVE, ANY_OF)
 7. Parser and evaluation tests
 
 ### Phase 4: Position & Portfolio Management
-1. Position data structures and operations
-2. Portfolio state management
+1. Position data structures and `impl` methods
+2. Portfolio state management with `HashMap<String, Position>`
 3. Trade execution (entry/exit)
 4. Commission and slippage calculation
 5. Stop-loss / take-profit trigger checking
@@ -1392,21 +1768,21 @@ Suggested build order for the reimplementation:
 
 ### Phase 5: Backtest Engine
 1. Universe module (parsing + validation)
-2. Code data container
+2. `CodeData` container with `date_index: HashMap<NaiveDate, usize>`
 3. Date timeline builder
-4. Backtest loop as library function
+4. Backtest loop as library function (`run_backtest`)
 5. Metrics computation (including break-even handling)
 6. Per-code metrics
 7. Backtest integration tests
 
 ### Phase 6: Data Adapters
-1. Data port interface
-2. PostgreSQL adapter (parameterised queries, thread-safe time handling)
+1. `DataPort` trait definition
+2. PostgreSQL adapter (feature-gated, parameterised queries)
 3. CSV adapter
 4. Data adapter tests
 
 ### Phase 7: Reporting
-1. Report port interface
+1. `ReportPort` trait with default `write_multi` implementation
 2. Typst adapter: orchestration + placeholder resolution
 3. SVG chart generation (equity curve, drawdown)
 4. Monthly returns table
@@ -1416,13 +1792,13 @@ Suggested build order for the reimplementation:
 8. Report tests
 
 ### Phase 8: CLI & Integration
-1. CLI argument parsing (subcommands, flags)
+1. `clap` derive structs (`Cli`, `Command` enum)
 2. `backtest` command (orchestrate library calls)
 3. `validate` command
 4. `list-symbols` command
 5. `info` command
 6. `--dry-run` flag
-7. Exit codes
+7. `ExitCode` conversion from `SamtraderError`
 8. End-to-end tests
 
 ---
@@ -1434,21 +1810,21 @@ Every review finding from the original code review is addressed in this TRD:
 | # | Finding | Resolution | TRD Section |
 |---|---|---|---|
 | 1 | DRY violation: duplicated indicator helpers | Shared `indicator_helpers` module | 2.1, 4.5 |
-| 2 | Error callback homeless in universe.c | Dedicated error module | 2.1, 14.2 |
+| 2 | Error callback homeless in universe.c | Dedicated `error.rs` module with `thiserror` | 2.1, 14.1 |
 | 3 | typst_report_adapter.c 48KB monolith | Split into 4 submodules | 2.1, 11.3 |
-| 4 | No library target | Library core as first-class target | 2.1, 2.3 |
-| 5 | qsort on internal vector data | Implementation detail — use idiomatic sort | N/A (impl) |
-| 6 | gmtime() not thread-safe | Require thread-safe time functions | 11.1 |
+| 4 | No library target | `[lib]` + `[[bin]]` targets in `Cargo.toml` | 2.1, 2.3 |
+| 5 | qsort on internal vector data | N/A — `Vec::sort_by()` is safe and idiomatic | N/A |
+| 6 | gmtime() not thread-safe | N/A — `chrono::NaiveDate` is inherently thread-safe | N/A |
 | 7 | main.c doing too much | Backtest loop extracted to domain function | 8.1 |
 | 8 | Generated artifacts in git | .gitignore (implementation detail) | N/A (impl) |
 | 9 | Credentials in git | .gitignore + env var support (implementation detail) | N/A (impl) |
 | 10 | WMA O(n*period) complexity | Sliding window specification | 4.4.3 |
 | 11 | Zero-PnL trades counted as losses | `break_even_trades` counter, excluded from win/loss | 10.1, 10.2 |
-| 12 | No parser error messages | Error position + expected/found info required | 5.5, 14.3 |
+| 12 | No parser error messages | `ParseError` with position + context, `thiserror` derive | 5.5, 14.3 |
 | P3.4 | No config validation | Validation table with rules | 6.2 |
-| P3.5 | No --dry-run flag | `--dry-run` specification | 13.2 |
+| P3.5 | No --dry-run flag | `--dry-run` specification | 13.3 |
 | P3.6 | ROC/STDDEV/OBV/VWAP unimplemented | All 13 indicators required with calculation specs | 4.1, 4.4.7–4.4.12 |
-| P3.3 | No CSV data adapter | CSV adapter specification | 11.1 |
+| P3.3 | No CSV data adapter | CSV adapter implementing `DataPort` trait | 11.1 |
 
 ---
 
