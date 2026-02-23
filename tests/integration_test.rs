@@ -8,7 +8,7 @@
 //! - Backward compatibility: single `code` config produces identical results
 
 use chrono::NaiveDate;
-use samtrader::domain::backtest::{run_backtest, BacktestConfig};
+use samtrader::domain::backtest::{run_backtest, BacktestConfig, BacktestResult};
 use samtrader::domain::code_data::{build_unified_timeline, CodeData};
 use samtrader::domain::error::SamtraderError;
 use samtrader::domain::ohlcv::OhlcvBar;
@@ -16,6 +16,8 @@ use samtrader::domain::rule::{Operand, Rule};
 use samtrader::domain::strategy::Strategy;
 use samtrader::domain::universe::{parse_codes, validate_universe, SkipReason, MIN_OHLCV_BARS};
 use samtrader::ports::data_port::DataPort;
+use samtrader::ports::report_port::ReportPort;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 struct MockDataPort {
@@ -667,5 +669,340 @@ mod equity_curve_and_metrics {
         let actual_equity = result.portfolio.total_equity(&price_map);
 
         assert!((actual_equity - expected_equity).abs() < f64::EPSILON);
+    }
+}
+
+struct MockReportPort {
+    calls: RefCell<Vec<(BacktestResult, Strategy, String)>>,
+}
+
+impl MockReportPort {
+    fn new() -> Self {
+        Self {
+            calls: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl ReportPort for MockReportPort {
+    fn write(
+        &self,
+        result: &BacktestResult,
+        strategy: &Strategy,
+        output_path: &str,
+    ) -> Result<(), SamtraderError> {
+        self.calls
+            .borrow_mut()
+            .push((result.clone(), strategy.clone(), output_path.to_string()));
+        Ok(())
+    }
+}
+
+mod report_generation {
+    use super::*;
+
+    #[test]
+    fn report_receives_strategy_metadata() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 90.0),
+        ];
+        let code_data = make_code_data("BHP", bars);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report
+            .write(&result, &strategy, "output.typ")
+            .expect("report write should succeed");
+
+        let calls = report.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        let (_, ref strat, ref path) = calls[0];
+
+        // TRD §12.1 Section 1: Strategy Summary — name, description, rules, parameters
+        assert_eq!(strat.name, "Test");
+        assert_eq!(strat.description, "Test strategy");
+        assert_eq!(strat.position_size, 0.25);
+        assert_eq!(strat.max_positions, 1);
+        assert_eq!(path, "output.typ");
+    }
+
+    #[test]
+    fn report_receives_equity_curve() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 120.0),
+            make_bar("BHP", "2024-01-04", 90.0),
+            make_bar("BHP", "2024-01-05", 85.0),
+        ];
+        let code_data = make_code_data("BHP", bars);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 3: Equity Curve — must have one point per timeline date
+        assert_eq!(res.portfolio.equity_curve.len(), 5);
+        // First point should equal initial capital (no position yet)
+        assert!((res.portfolio.equity_curve[0].equity - 100_000.0).abs() < f64::EPSILON);
+        // Equity should change after trades
+        let final_equity = res.portfolio.equity_curve.last().unwrap().equity;
+        assert!(final_equity != 100_000.0);
+    }
+
+    #[test]
+    fn report_receives_trade_log() {
+        let bhp_bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 90.0),
+        ];
+        let cba_bars = vec![
+            make_bar("CBA", "2024-01-01", 90.0),
+            make_bar("CBA", "2024-01-02", 110.0),
+            make_bar("CBA", "2024-01-03", 90.0),
+        ];
+        let bhp = make_code_data("BHP", bhp_bars);
+        let cba = make_code_data("CBA", cba_bars);
+        let timeline = build_unified_timeline(&[bhp.clone(), cba.clone()]);
+
+        let mut strategy = make_simple_strategy();
+        strategy.max_positions = 2;
+        let config = sample_config();
+
+        let result = run_backtest(&[bhp, cba], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 7: Full Trade Log — all codes, sorted by date
+        assert_eq!(res.portfolio.closed_trades.len(), 2);
+        let codes: std::collections::HashSet<&str> = res
+            .portfolio
+            .closed_trades
+            .iter()
+            .map(|t| t.code.as_str())
+            .collect();
+        assert!(codes.contains("BHP"));
+        assert!(codes.contains("CBA"));
+
+        // Each trade has the fields needed for the trade log table
+        for trade in &res.portfolio.closed_trades {
+            assert!(!trade.code.is_empty());
+            assert!(trade.quantity > 0);
+            assert!(trade.entry_price > 0.0);
+            assert!(trade.exit_price > 0.0);
+            assert!(trade.entry_date < trade.exit_date);
+        }
+    }
+
+    #[test]
+    fn report_receives_per_code_data_for_universe_summary() {
+        let bhp_bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 120.0),
+            make_bar("BHP", "2024-01-04", 90.0),
+        ];
+        let cba_bars = vec![
+            make_bar("CBA", "2024-01-01", 90.0),
+            make_bar("CBA", "2024-01-02", 110.0),
+            make_bar("CBA", "2024-01-03", 90.0),
+        ];
+        let rio_bars = vec![
+            make_bar("RIO", "2024-01-01", 90.0),
+            make_bar("RIO", "2024-01-02", 110.0),
+            make_bar("RIO", "2024-01-03", 115.0),
+            make_bar("RIO", "2024-01-04", 90.0),
+        ];
+
+        let bhp = make_code_data("BHP", bhp_bars);
+        let cba = make_code_data("CBA", cba_bars);
+        let rio = make_code_data("RIO", rio_bars);
+        let timeline = build_unified_timeline(&[bhp.clone(), cba.clone(), rio.clone()]);
+
+        let mut strategy = make_simple_strategy();
+        strategy.max_positions = 3;
+        let config = sample_config();
+
+        let result = run_backtest(&[bhp, cba, rio], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 5: Universe Summary Table — per-code trades, PnL
+        // Verify trades can be grouped by code for per-code detail sections
+        let mut per_code: HashMap<&str, Vec<&samtrader::domain::position::ClosedTrade>> =
+            HashMap::new();
+        for trade in &res.portfolio.closed_trades {
+            per_code.entry(trade.code.as_str()).or_default().push(trade);
+        }
+
+        assert_eq!(per_code.len(), 3);
+        assert!(per_code.contains_key("BHP"));
+        assert!(per_code.contains_key("CBA"));
+        assert!(per_code.contains_key("RIO"));
+
+        // Each code has exactly one trade
+        for (_, trades) in &per_code {
+            assert_eq!(trades.len(), 1);
+        }
+
+        // Per-code PnL is computable from closed trades
+        for (_, trades) in &per_code {
+            let code_pnl: f64 = trades.iter().map(|t| t.pnl).sum();
+            assert!(code_pnl.is_finite());
+        }
+    }
+
+    #[test]
+    fn report_data_supports_drawdown_calculation() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 120.0),
+            make_bar("BHP", "2024-01-04", 95.0),
+            make_bar("BHP", "2024-01-05", 90.0),
+        ];
+        let code_data = make_code_data("BHP", bars);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 4: Drawdown Chart — derivable from equity curve
+        let equity = &res.portfolio.equity_curve;
+        assert!(equity.len() >= 2, "need at least 2 points for drawdown chart");
+
+        // Compute drawdown from equity curve to verify the data is sufficient
+        let mut peak = equity[0].equity;
+        let mut max_drawdown = 0.0_f64;
+        for point in equity {
+            if point.equity > peak {
+                peak = point.equity;
+            }
+            let dd = (peak - point.equity) / peak;
+            if dd > max_drawdown {
+                max_drawdown = dd;
+            }
+        }
+        // After a losing trade, drawdown should be non-zero
+        assert!(max_drawdown > 0.0);
+    }
+
+    #[test]
+    fn report_data_supports_monthly_returns() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-15", 120.0),
+            make_bar("BHP", "2024-01-20", 90.0),
+            make_bar("BHP", "2024-01-31", 85.0),
+        ];
+        let code_data = make_code_data("BHP", bars);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 8: Monthly Returns Table — derivable from equity curve dates
+        let equity = &res.portfolio.equity_curve;
+        assert!(!equity.is_empty());
+
+        // Equity points have dates, which allows grouping by year/month
+        let first_date = equity.first().unwrap().date;
+        let last_date = equity.last().unwrap().date;
+        assert_eq!(first_date.format("%Y-%m").to_string(), "2024-01");
+        assert_eq!(last_date.format("%Y-%m").to_string(), "2024-01");
+
+        // Monthly return = (last equity in month - first equity in month) / first
+        let monthly_return =
+            (equity.last().unwrap().equity - equity.first().unwrap().equity) / equity.first().unwrap().equity;
+        assert!(monthly_return.is_finite());
+    }
+
+    #[test]
+    fn report_data_supports_aggregate_metrics() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 120.0),
+            make_bar("BHP", "2024-01-04", 90.0),
+            make_bar("BHP", "2024-01-05", 110.0),
+            make_bar("BHP", "2024-01-06", 90.0),
+        ];
+        let code_data = make_code_data("BHP", bars);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        let report = MockReportPort::new();
+        report.write(&result, &strategy, "out.typ").unwrap();
+
+        let calls = report.calls.borrow();
+        let ref res = calls[0].0;
+
+        // TRD §12.1 Section 2: Aggregate Performance Metrics
+        // All metrics from §10.1 are derivable from portfolio data
+        let trades = &res.portfolio.closed_trades;
+        assert!(trades.len() >= 2, "need trades for meaningful metrics");
+
+        // Total return
+        let initial = res.portfolio.initial_capital;
+        let final_equity = res.portfolio.equity_curve.last().unwrap().equity;
+        let total_return = (final_equity - initial) / initial;
+        assert!(total_return.is_finite());
+
+        // Win rate
+        let winners = trades.iter().filter(|t| t.pnl > 0.0).count();
+        let win_rate = winners as f64 / trades.len() as f64;
+        assert!(win_rate >= 0.0 && win_rate <= 1.0);
+
+        // Profit factor (sum of wins / abs sum of losses)
+        let gross_profit: f64 = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).sum();
+        let gross_loss: f64 = trades
+            .iter()
+            .filter(|t| t.pnl < 0.0)
+            .map(|t| t.pnl.abs())
+            .sum();
+        if gross_loss > 0.0 {
+            let profit_factor = gross_profit / gross_loss;
+            assert!(profit_factor.is_finite());
+        }
     }
 }
