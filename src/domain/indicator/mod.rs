@@ -8,11 +8,13 @@
 
 mod bollinger;
 mod obv;
+mod rsi;
 pub mod stddev;
 pub mod wma;
 
 pub use bollinger::*;
 pub use obv::*;
+pub use rsi::*;
 pub use wma::*;
 
 use crate::domain::ohlcv::OhlcvBar;
