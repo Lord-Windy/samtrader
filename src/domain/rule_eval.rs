@@ -10,6 +10,13 @@
 //! - `OR`: Short-circuits on first `true`
 //! - `CONSECUTIVE(rule, N)`: Child must be true for N consecutive bars ending at current
 //! - `ANY_OF(rule, N)`: Child must be true at least once in the last N bars
+//!
+//! # Missing / Invalid Indicator Data
+//!
+//! When an indicator is missing from the map, out of range, or marked invalid,
+//! the operand resolves to `f64::NAN`. Since IEEE 754 NaN comparisons always
+//! return false, rules referencing unavailable data evaluate to false rather
+//! than triggering spurious signals.
 
 use crate::domain::indicator::{IndicatorSeries, IndicatorType, IndicatorValue};
 use crate::domain::ohlcv::OhlcvBar;
@@ -88,7 +95,7 @@ pub fn evaluate(
         }
         Rule::Not(rule) => !evaluate(rule, ohlcv, indicators, bar_index),
         Rule::Consecutive { rule, count } => {
-            if bar_index + 1 < *count {
+            if *count == 0 || bar_index + 1 < *count {
                 return false;
             }
             for i in (bar_index + 1 - *count)..=bar_index {
@@ -99,6 +106,9 @@ pub fn evaluate(
             true
         }
         Rule::AnyOf { rule, count } => {
+            if *count == 0 {
+                return false;
+            }
             let start = bar_index.saturating_sub(*count - 1);
             for i in start..=bar_index {
                 if evaluate(rule, ohlcv, indicators, i) {
@@ -766,5 +776,92 @@ mod tests {
         };
 
         assert!(!evaluate(&rule, &ohlcv, &indicators, 0));
+    }
+
+    #[test]
+    fn evaluate_operand_open_high_low() {
+        let ohlcv = make_ohlcv(vec![make_bar(1, 100.0, 120.0, 80.0, 105.0, 1000)]);
+
+        assert!(evaluate(
+            &Rule::Above { left: Operand::Open, right: Operand::Constant(99.0) },
+            &ohlcv, &HashMap::new(), 0,
+        ));
+        assert!(evaluate(
+            &Rule::Above { left: Operand::High, right: Operand::Constant(119.0) },
+            &ohlcv, &HashMap::new(), 0,
+        ));
+        assert!(evaluate(
+            &Rule::Below { left: Operand::Low, right: Operand::Constant(81.0) },
+            &ohlcv, &HashMap::new(), 0,
+        ));
+    }
+
+    #[test]
+    fn evaluate_cross_below_false_no_cross() {
+        let ohlcv = make_ohlcv(vec![
+            make_bar(1, 100.0, 110.0, 90.0, 95.0, 1000),
+            make_bar(2, 100.0, 110.0, 90.0, 90.0, 1000),
+        ]);
+        let rule = Rule::CrossBelow {
+            left: Operand::Close,
+            right: Operand::Constant(100.0),
+        };
+        // Both bars already below threshold, so no crossing occurs
+        assert!(!evaluate(&rule, &ohlcv, &HashMap::new(), 1));
+    }
+
+    #[test]
+    fn evaluate_consecutive_count_zero() {
+        let ohlcv = make_ohlcv(vec![make_bar(1, 100.0, 110.0, 90.0, 105.0, 1000)]);
+        let rule = Rule::Consecutive {
+            rule: Box::new(Rule::Above {
+                left: Operand::Close,
+                right: Operand::Constant(100.0),
+            }),
+            count: 0,
+        };
+        assert!(!evaluate(&rule, &ohlcv, &HashMap::new(), 0));
+    }
+
+    #[test]
+    fn evaluate_consecutive_count_one() {
+        let ohlcv = make_ohlcv(vec![make_bar(1, 100.0, 110.0, 90.0, 105.0, 1000)]);
+        let rule = Rule::Consecutive {
+            rule: Box::new(Rule::Above {
+                left: Operand::Close,
+                right: Operand::Constant(100.0),
+            }),
+            count: 1,
+        };
+        assert!(evaluate(&rule, &ohlcv, &HashMap::new(), 0));
+    }
+
+    #[test]
+    fn evaluate_any_of_count_zero() {
+        let ohlcv = make_ohlcv(vec![make_bar(1, 100.0, 110.0, 90.0, 105.0, 1000)]);
+        let rule = Rule::AnyOf {
+            rule: Box::new(Rule::Above {
+                left: Operand::Close,
+                right: Operand::Constant(100.0),
+            }),
+            count: 0,
+        };
+        assert!(!evaluate(&rule, &ohlcv, &HashMap::new(), 0));
+    }
+
+    #[test]
+    fn evaluate_equals_near_epsilon_boundary() {
+        let ohlcv = make_ohlcv(vec![
+            make_bar(1, 100.0, 110.0, 90.0, 100.0 + 5e-10, 1000),
+            make_bar(2, 100.0, 110.0, 90.0, 100.0 + 5e-9, 1000),
+        ]);
+        let rule = Rule::Equals {
+            left: Operand::Close,
+            right: Operand::Constant(100.0),
+        };
+        // 5e-10 is within epsilon (1e-9), should be equal
+        assert!(evaluate(&rule, &ohlcv, &HashMap::new(), 0));
+        // 5e-9 is outside epsilon, should not be equal
+        assert!(!evaluate(&rule, &ohlcv, &HashMap::new(), 1));
     }
 }
