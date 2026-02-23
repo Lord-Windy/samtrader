@@ -2,6 +2,7 @@
 
 pub mod backtest;
 pub mod code_data;
+pub mod config_validation;
 pub mod error;
 pub mod execution;
 pub mod indicator;

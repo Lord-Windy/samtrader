@@ -11,7 +11,7 @@ pub struct FileConfigAdapter {
 impl FileConfigAdapter {
     pub fn from_file<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let mut config = Ini::new();
-        config.load(path).map_err(|e| std::io::Error::other(e))?;
+        config.load(path).map_err(std::io::Error::other)?;
         Ok(Self { config })
     }
 
