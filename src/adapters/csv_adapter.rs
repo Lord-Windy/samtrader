@@ -150,6 +150,54 @@ impl DataPort for CsvAdapter {
         symbols.sort();
         Ok(symbols)
     }
+
+    fn get_data_range(
+        &self,
+        code: &str,
+        exchange: &str,
+    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+        let path = self.csv_path(code, exchange);
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&path).map_err(|e| SamtraderError::Database {
+            reason: format!("failed to read {}: {}", path.display(), e),
+        })?;
+
+        let mut rdr = csv::Reader::from_reader(content.as_bytes());
+        let mut dates = Vec::new();
+
+        for result in rdr.records() {
+            let record = result.map_err(|e| SamtraderError::Database {
+                reason: format!("CSV parse error: {}", e),
+            })?;
+
+            let date_str = record.get(0).ok_or_else(|| SamtraderError::Database {
+                reason: "missing date column".into(),
+            })?;
+
+            let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| {
+                SamtraderError::Database {
+                    reason: format!("invalid date format: {}", e),
+                }
+            })?;
+
+            dates.push(date);
+        }
+
+        if dates.is_empty() {
+            return Ok(None);
+        }
+
+        dates.sort();
+        let min_date = *dates.first().unwrap();
+        let max_date = *dates.last().unwrap();
+        let count = dates.len();
+
+        Ok(Some((min_date, max_date, count)))
+    }
 }
 
 #[cfg(test)]

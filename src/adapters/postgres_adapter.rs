@@ -85,6 +85,36 @@ impl DataPort for PostgresAdapter {
 
         Ok(symbols)
     }
+
+    fn get_data_range(
+        &self,
+        code: &str,
+        exchange: &str,
+    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+        let query = "SELECT MIN(date), MAX(date), COUNT(*) FROM public.ohlcv WHERE code = $1 AND exchange = $2";
+
+        let rows = self
+            .client
+            .borrow_mut()
+            .query(query, &[&code, &exchange])
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let row = &rows[0];
+        let min_date: Option<NaiveDate> = row.get(0);
+        let max_date: Option<NaiveDate> = row.get(1);
+        let count: i64 = row.get(2);
+
+        match (min_date, max_date) {
+            (Some(min), Some(max)) if count > 0 => Ok(Some((min, max, count as usize))),
+            _ => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
