@@ -8,12 +8,14 @@
 
 mod bollinger;
 mod obv;
+pub mod roc;
 mod rsi;
 pub mod stddev;
 pub mod wma;
 
 pub use bollinger::*;
 pub use obv::*;
+pub use roc::*;
 pub use rsi::*;
 pub use wma::*;
 
