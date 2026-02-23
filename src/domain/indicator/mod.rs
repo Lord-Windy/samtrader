@@ -6,9 +6,11 @@
 //! - `IndicatorType`: Enum for indicator identity + parameters (serves as HashMap key)
 //! - `IndicatorSeries`: A time series of indicator values
 
+mod bollinger;
 mod obv;
 pub mod stddev;
 
+pub use bollinger::*;
 pub use obv::*;
 
 use crate::domain::ohlcv::OhlcvBar;

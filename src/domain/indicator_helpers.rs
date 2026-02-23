@@ -4,7 +4,9 @@
 //! - `IndicatorCache`: A HashMap-based cache for pre-computed indicator series
 //! - Calculation functions for all 13 indicator types from TRD Section 4.1
 
-use crate::domain::indicator::{IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue};
+use crate::domain::indicator::{
+    calculate_bollinger, IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue,
+};
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
 use std::collections::HashMap;
@@ -29,7 +31,9 @@ pub fn compute_indicator(bars: &[OhlcvBar], indicator_type: &IndicatorType) -> I
         IndicatorType::Bollinger {
             period,
             stddev_mult_x100,
-        } => compute_bollinger(bars, *period, *stddev_mult_x100),
+        } => {
+            return calculate_bollinger(bars, *period, *stddev_mult_x100);
+        }
         IndicatorType::Pivot => compute_pivot(bars),
     };
 
@@ -484,55 +488,6 @@ fn compute_stochastic(bars: &[OhlcvBar], k_period: usize, d_period: usize) -> Ve
             bar.date,
             valid,
             IndicatorValue::Stochastic { k, d },
-        ));
-    }
-
-    result
-}
-
-fn compute_bollinger(
-    bars: &[OhlcvBar],
-    period: usize,
-    stddev_mult_x100: u32,
-) -> Vec<IndicatorPoint> {
-    if period == 0 || bars.is_empty() {
-        return Vec::new();
-    }
-
-    let mult = stddev_mult_x100 as f64 / 100.0;
-    let mut result = Vec::with_capacity(bars.len());
-    let mut sum = 0.0;
-    let mut sum_sq = 0.0;
-
-    for (i, bar) in bars.iter().enumerate() {
-        sum += bar.close;
-        sum_sq += bar.close * bar.close;
-
-        if i >= period {
-            let old_close = bars[i - period].close;
-            sum -= old_close;
-            sum_sq -= old_close * old_close;
-        }
-
-        let valid = i >= period - 1;
-
-        let (upper, middle, lower) = if valid {
-            let middle = sum / period as f64;
-            let variance = sum_sq / period as f64 - middle * middle;
-            let stddev = variance.max(0.0).sqrt();
-            (middle + mult * stddev, middle, middle - mult * stddev)
-        } else {
-            (0.0, 0.0, 0.0)
-        };
-
-        result.push(make_point(
-            bar.date,
-            valid,
-            IndicatorValue::Bollinger {
-                upper,
-                middle,
-                lower,
-            },
         ));
     }
 
