@@ -52,8 +52,6 @@ pub fn calculate_rsi(bars: &[OhlcvBar], period: usize) -> IndicatorSeries {
         let gain_idx = i - 1;
 
         if gain_idx < period - 1 {
-            avg_gain = gains[..=gain_idx].iter().sum::<f64>() / (gain_idx + 1) as f64;
-            avg_loss = losses[..=gain_idx].iter().sum::<f64>() / (gain_idx + 1) as f64;
             values.push(IndicatorPoint {
                 date: bar.date,
                 valid: false,
@@ -252,13 +250,56 @@ mod tests {
 
         assert!(series.values[14].valid);
 
+        // Hand-calculated: avg_gain = 4.0/14, avg_loss = 1.5/14
+        // RS = 4.0/1.5 = 8/3, RSI = 100 - 100/(1 + 8/3) = 800/11 ≈ 72.7272...
+        let expected = 800.0 / 11.0;
         if let IndicatorValue::Simple(rsi) = series.values[14].value {
             assert!(
-                rsi > 50.0 && rsi < 100.0,
-                "RSI should be in bullish territory"
+                (rsi - expected).abs() < 1e-10,
+                "RSI should be {expected}, got {rsi}"
             );
         } else {
             panic!("Expected Simple value");
+        }
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::domain::ohlcv::OhlcvBar;
+    use chrono::NaiveDate;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn rsi_is_bounded(values in prop::collection::vec(1.0..1000.0f64, 20..100)) {
+            let bars: Vec<OhlcvBar> = values.iter().enumerate().map(|(i, &close)| {
+                let day = (i % 28) + 1;
+                let month = (i / 28) % 12 + 1;
+                let year = 2024 + (i / 336) as i32;
+                OhlcvBar {
+                    code: "TEST".into(),
+                    exchange: "ASX".into(),
+                    date: NaiveDate::from_ymd_opt(year, month as u32, day as u32).unwrap(),
+                    open: close,
+                    high: close,
+                    low: close,
+                    close,
+                    volume: 1000,
+                }
+            }).collect();
+
+            let series = calculate_rsi(&bars, 14);
+            prop_assert_eq!(series.values.len(), bars.len());
+            for point in &series.values {
+                if point.valid {
+                    if let IndicatorValue::Simple(rsi) = point.value {
+                        prop_assert!(rsi >= 0.0 && rsi <= 100.0,
+                            "RSI {} out of [0, 100] range", rsi);
+                    }
+                }
+            }
         }
     }
 }
