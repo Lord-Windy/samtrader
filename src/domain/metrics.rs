@@ -1,8 +1,67 @@
 //! Performance metrics and statistics (TRD Section 3.7, §10).
 
 use super::portfolio::{EquityPoint, Portfolio};
+use super::position::ClosedTrade;
 
 const TRADING_DAYS_PER_YEAR: f64 = 252.0;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeResult {
+    pub code: String,
+    pub exchange: String,
+    pub total_trades: usize,
+    pub winning_trades: usize,
+    pub losing_trades: usize,
+    pub total_pnl: f64,
+    pub win_rate: f64,
+    pub largest_win: f64,
+    pub largest_loss: f64,
+}
+
+impl CodeResult {
+    pub fn compute_per_code(trades: &[ClosedTrade]) -> Vec<Self> {
+        let mut results: std::collections::HashMap<String, CodeResult> =
+            std::collections::HashMap::new();
+
+        for trade in trades {
+            let entry = results.entry(trade.code.clone()).or_insert(CodeResult {
+                code: trade.code.clone(),
+                exchange: trade.exchange.clone(),
+                total_trades: 0,
+                winning_trades: 0,
+                losing_trades: 0,
+                total_pnl: 0.0,
+                win_rate: 0.0,
+                largest_win: 0.0,
+                largest_loss: 0.0,
+            });
+
+            entry.total_trades += 1;
+            entry.total_pnl += trade.pnl;
+
+            if trade.pnl > 0.0 {
+                entry.winning_trades += 1;
+                if trade.pnl > entry.largest_win {
+                    entry.largest_win = trade.pnl;
+                }
+            } else if trade.pnl < 0.0 {
+                entry.losing_trades += 1;
+                if trade.pnl < entry.largest_loss {
+                    entry.largest_loss = trade.pnl;
+                }
+            }
+        }
+
+        let mut results: Vec<CodeResult> = results.into_values().collect();
+        for r in &mut results {
+            if r.total_trades > 0 {
+                r.win_rate = r.winning_trades as f64 / r.total_trades as f64;
+            }
+        }
+        results.sort_by(|a, b| a.code.cmp(&b.code));
+        results
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Metrics {
@@ -359,10 +418,7 @@ mod tests {
 
     #[test]
     fn metrics_profit_factor_no_losses() {
-        let trades = vec![
-            make_trade("A", 100.0, 5),
-            make_trade("B", 200.0, 3),
-        ];
+        let trades = vec![make_trade("A", 100.0, 5), make_trade("B", 200.0, 3)];
         let portfolio = make_portfolio(vec![100_000.0, 100_300.0], trades);
         let metrics = Metrics::compute(&portfolio, 0.05);
 
@@ -468,5 +524,93 @@ mod tests {
         assert!((metrics.largest_win - 0.0).abs() < f64::EPSILON);
         assert!((metrics.largest_loss - 0.0).abs() < f64::EPSILON);
         assert!((metrics.average_trade_duration - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn code_result_empty_trades() {
+        let results = CodeResult::compute_per_code(&[]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn code_result_single_code() {
+        let trades = vec![
+            make_trade("BHP", 100.0, 5),
+            make_trade("BHP", -50.0, 3),
+            make_trade("BHP", 200.0, 10),
+        ];
+        let results = CodeResult::compute_per_code(&trades);
+
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert_eq!(r.code, "BHP");
+        assert_eq!(r.total_trades, 3);
+        assert_eq!(r.winning_trades, 2);
+        assert_eq!(r.losing_trades, 1);
+        assert!((r.total_pnl - 250.0).abs() < 1e-9);
+        assert!((r.win_rate - 2.0 / 3.0).abs() < 1e-9);
+        assert!((r.largest_win - 200.0).abs() < 1e-9);
+        assert!((r.largest_loss - (-50.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn code_result_multiple_codes() {
+        let trades = vec![
+            make_trade("BHP", 100.0, 5),
+            make_trade("CBA", -50.0, 3),
+            make_trade("BHP", 200.0, 10),
+            make_trade("RIO", 150.0, 7),
+        ];
+        let results = CodeResult::compute_per_code(&trades);
+
+        assert_eq!(results.len(), 3);
+
+        let bhp = results.iter().find(|r| r.code == "BHP").unwrap();
+        assert_eq!(bhp.total_trades, 2);
+        assert_eq!(bhp.winning_trades, 2);
+        assert!((bhp.total_pnl - 300.0).abs() < 1e-9);
+        assert!((bhp.win_rate - 1.0).abs() < 1e-9);
+
+        let cba = results.iter().find(|r| r.code == "CBA").unwrap();
+        assert_eq!(cba.total_trades, 1);
+        assert_eq!(cba.losing_trades, 1);
+        assert!((cba.win_rate - 0.0).abs() < 1e-9);
+
+        let rio = results.iter().find(|r| r.code == "RIO").unwrap();
+        assert_eq!(rio.total_trades, 1);
+        assert_eq!(rio.winning_trades, 1);
+    }
+
+    #[test]
+    fn code_result_sorted_by_code() {
+        let trades = vec![
+            make_trade("RIO", 100.0, 5),
+            make_trade("BHP", 100.0, 5),
+            make_trade("CBA", 100.0, 5),
+        ];
+        let results = CodeResult::compute_per_code(&trades);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].code, "BHP");
+        assert_eq!(results[1].code, "CBA");
+        assert_eq!(results[2].code, "RIO");
+    }
+
+    #[test]
+    fn code_result_zero_pnl_is_neither_win_nor_loss() {
+        let trades = vec![
+            make_trade("BHP", 100.0, 5),
+            make_trade("BHP", 0.0, 3),
+            make_trade("BHP", -50.0, 2),
+        ];
+        let results = CodeResult::compute_per_code(&trades);
+
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert_eq!(r.total_trades, 3);
+        assert_eq!(r.winning_trades, 1);
+        assert_eq!(r.losing_trades, 1);
+        assert!((r.total_pnl - 50.0).abs() < 1e-9);
+        assert!((r.win_rate - 1.0 / 3.0).abs() < 1e-9);
     }
 }
