@@ -10,6 +10,7 @@ mod obv;
 
 pub use obv::*;
 
+use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
 use std::fmt;
 
@@ -79,6 +80,60 @@ pub enum IndicatorType {
 pub struct IndicatorSeries {
     pub indicator_type: IndicatorType,
     pub values: Vec<IndicatorPoint>,
+}
+
+pub fn compute_pivot(bars: &[OhlcvBar]) -> IndicatorSeries {
+    let mut values = Vec::with_capacity(bars.len());
+
+    for (i, bar) in bars.iter().enumerate() {
+        if i == 0 {
+            values.push(IndicatorPoint {
+                date: bar.date,
+                valid: false,
+                value: IndicatorValue::Pivot {
+                    pivot: 0.0,
+                    r1: 0.0,
+                    r2: 0.0,
+                    r3: 0.0,
+                    s1: 0.0,
+                    s2: 0.0,
+                    s3: 0.0,
+                },
+            });
+        } else {
+            let prev = &bars[i - 1];
+            let h = prev.high;
+            let l = prev.low;
+            let c = prev.close;
+
+            let pivot = (h + l + c) / 3.0;
+            let r1 = (2.0 * pivot) - l;
+            let s1 = (2.0 * pivot) - h;
+            let r2 = pivot + (h - l);
+            let s2 = pivot - (h - l);
+            let r3 = h + 2.0 * (pivot - l);
+            let s3 = l - 2.0 * (h - pivot);
+
+            values.push(IndicatorPoint {
+                date: bar.date,
+                valid: true,
+                value: IndicatorValue::Pivot {
+                    pivot,
+                    r1,
+                    r2,
+                    r3,
+                    s1,
+                    s2,
+                    s3,
+                },
+            });
+        }
+    }
+
+    IndicatorSeries {
+        indicator_type: IndicatorType::Pivot,
+        values,
+    }
 }
 
 impl fmt::Display for IndicatorType {
@@ -168,5 +223,82 @@ mod tests {
             map.get(&IndicatorType::Sma(20)),
             Some(&"sma20_series".to_string())
         );
+    }
+
+    #[test]
+    fn pivot_first_bar_invalid() {
+        let bars = vec![OhlcvBar {
+            code: "TEST".into(),
+            exchange: "ASX".into(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            open: 100.0,
+            high: 110.0,
+            low: 90.0,
+            close: 105.0,
+            volume: 1000,
+        }];
+
+        let series = compute_pivot(&bars);
+        assert_eq!(series.indicator_type, IndicatorType::Pivot);
+        assert_eq!(series.values.len(), 1);
+        assert!(!series.values[0].valid);
+    }
+
+    #[test]
+    fn pivot_calculation() {
+        let bars = vec![
+            OhlcvBar {
+                code: "TEST".into(),
+                exchange: "ASX".into(),
+                date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                open: 100.0,
+                high: 110.0,
+                low: 90.0,
+                close: 105.0,
+                volume: 1000,
+            },
+            OhlcvBar {
+                code: "TEST".into(),
+                exchange: "ASX".into(),
+                date: NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+                open: 105.0,
+                high: 115.0,
+                low: 100.0,
+                close: 110.0,
+                volume: 1200,
+            },
+        ];
+
+        let series = compute_pivot(&bars);
+        assert_eq!(series.values.len(), 2);
+
+        assert!(!series.values[0].valid);
+
+        assert!(series.values[1].valid);
+        let h = 110.0;
+        let l = 90.0;
+        let c = 105.0;
+        let pivot = (h + l + c) / 3.0;
+
+        match &series.values[1].value {
+            IndicatorValue::Pivot {
+                pivot: p,
+                r1,
+                r2,
+                r3,
+                s1,
+                s2,
+                s3,
+            } => {
+                assert!((p - pivot).abs() < f64::EPSILON);
+                assert!((r1 - ((2.0 * pivot) - l)).abs() < f64::EPSILON);
+                assert!((s1 - ((2.0 * pivot) - h)).abs() < f64::EPSILON);
+                assert!((r2 - (pivot + (h - l))).abs() < f64::EPSILON);
+                assert!((s2 - (pivot - (h - l))).abs() < f64::EPSILON);
+                assert!((r3 - (h + 2.0 * (pivot - l))).abs() < f64::EPSILON);
+                assert!((s3 - (l - 2.0 * (h - pivot))).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected Pivot value"),
+        }
     }
 }
