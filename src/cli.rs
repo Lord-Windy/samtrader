@@ -142,10 +142,6 @@ fn run_dry_run(config_path: &PathBuf) -> ExitCode {
         .get_string("strategy", "exit_long")
         .unwrap_or_default();
 
-    eprintln!("\nStrategy rules:");
-    eprintln!("  entry_long: {}", entry_long_str);
-    eprintln!("  exit_long:  {}", exit_long_str);
-
     let entry_rule = match rule_parser::parse(&entry_long_str) {
         Ok(r) => r,
         Err(e) => {
@@ -161,6 +157,10 @@ fn run_dry_run(config_path: &PathBuf) -> ExitCode {
             return ExitCode::from(4);
         }
     };
+
+    eprintln!("\nStrategy rules (parsed):");
+    eprintln!("  entry_long: {}", entry_rule);
+    eprintln!("  exit_long:  {}", exit_rule);
 
     let mut indicators = extract_indicators(&entry_rule);
     indicators.extend(extract_indicators(&exit_rule));

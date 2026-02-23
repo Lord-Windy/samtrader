@@ -8,6 +8,7 @@
 
 use crate::domain::indicator::IndicatorType;
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
@@ -89,6 +90,83 @@ pub enum Rule {
         rule: Box<Rule>,
         count: usize,
     },
+}
+
+impl fmt::Display for IndicatorField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IndicatorField::Value => Ok(()),
+            IndicatorField::MacdLine => write!(f, ".line"),
+            IndicatorField::MacdSignal => write!(f, ".signal"),
+            IndicatorField::MacdHistogram => write!(f, ".histogram"),
+            IndicatorField::StochasticK => write!(f, ".k"),
+            IndicatorField::StochasticD => write!(f, ".d"),
+            IndicatorField::BollingerUpper => write!(f, ".upper"),
+            IndicatorField::BollingerMiddle => write!(f, ".middle"),
+            IndicatorField::BollingerLower => write!(f, ".lower"),
+            IndicatorField::Pivot => write!(f, ".pivot"),
+            IndicatorField::R1 => write!(f, ".r1"),
+            IndicatorField::R2 => write!(f, ".r2"),
+            IndicatorField::R3 => write!(f, ".r3"),
+            IndicatorField::S1 => write!(f, ".s1"),
+            IndicatorField::S2 => write!(f, ".s2"),
+            IndicatorField::S3 => write!(f, ".s3"),
+        }
+    }
+}
+
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operand::Open => write!(f, "open"),
+            Operand::High => write!(f, "high"),
+            Operand::Low => write!(f, "low"),
+            Operand::Close => write!(f, "close"),
+            Operand::Volume => write!(f, "volume"),
+            Operand::Constant(v) => write!(f, "{v}"),
+            Operand::Indicator(r) => {
+                write!(f, "{}{}", r.indicator_type, r.field)
+            }
+        }
+    }
+}
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Rule::CrossAbove { left, right } => write!(f, "{left} cross_above {right}"),
+            Rule::CrossBelow { left, right } => write!(f, "{left} cross_below {right}"),
+            Rule::Above { left, right } => write!(f, "{left} above {right}"),
+            Rule::Below { left, right } => write!(f, "{left} below {right}"),
+            Rule::Equals { left, right } => write!(f, "{left} equals {right}"),
+            Rule::Between {
+                operand,
+                lower,
+                upper,
+            } => write!(f, "{operand} between {lower} {upper}"),
+            Rule::And(rules) => {
+                for (i, rule) in rules.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " AND ")?;
+                    }
+                    write!(f, "{rule}")?;
+                }
+                Ok(())
+            }
+            Rule::Or(rules) => {
+                for (i, rule) in rules.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " OR ")?;
+                    }
+                    write!(f, "({rule})")?;
+                }
+                Ok(())
+            }
+            Rule::Not(inner) => write!(f, "NOT ({inner})"),
+            Rule::Consecutive { rule, count } => write!(f, "consecutive({count}, {rule})"),
+            Rule::AnyOf { rule, count } => write!(f, "any_of({count}, {rule})"),
+        }
+    }
 }
 
 pub fn extract_indicators(rule: &Rule) -> HashSet<IndicatorType> {
@@ -281,5 +359,200 @@ mod tests {
             })),
         ]);
         assert!(matches!(nested, Rule::And(_)));
+    }
+
+    // --- extract_indicators tests ---
+
+    #[test]
+    fn extract_indicators_from_simple_comparison() {
+        let rule = Rule::CrossAbove {
+            left: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Sma(20),
+                field: IndicatorField::Value,
+            }),
+            right: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Sma(50),
+                field: IndicatorField::Value,
+            }),
+        };
+        let inds = extract_indicators(&rule);
+        assert_eq!(inds.len(), 2);
+        assert!(inds.contains(&IndicatorType::Sma(20)));
+        assert!(inds.contains(&IndicatorType::Sma(50)));
+    }
+
+    #[test]
+    fn extract_indicators_ignores_price_and_constants() {
+        let rule = Rule::Above {
+            left: Operand::Close,
+            right: Operand::Constant(100.0),
+        };
+        let inds = extract_indicators(&rule);
+        assert!(inds.is_empty());
+    }
+
+    #[test]
+    fn extract_indicators_deduplicates() {
+        // Same indicator on both sides
+        let rule = Rule::Above {
+            left: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Ema(10),
+                field: IndicatorField::Value,
+            }),
+            right: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Ema(10),
+                field: IndicatorField::Value,
+            }),
+        };
+        let inds = extract_indicators(&rule);
+        assert_eq!(inds.len(), 1);
+    }
+
+    #[test]
+    fn extract_indicators_from_nested_and_or() {
+        let rule = Rule::And(vec![
+            Rule::CrossAbove {
+                left: Operand::Indicator(IndicatorRef {
+                    indicator_type: IndicatorType::Sma(20),
+                    field: IndicatorField::Value,
+                }),
+                right: Operand::Indicator(IndicatorRef {
+                    indicator_type: IndicatorType::Sma(50),
+                    field: IndicatorField::Value,
+                }),
+            },
+            Rule::Or(vec![
+                Rule::Above {
+                    left: Operand::Indicator(IndicatorRef {
+                        indicator_type: IndicatorType::Rsi(14),
+                        field: IndicatorField::Value,
+                    }),
+                    right: Operand::Constant(70.0),
+                },
+                Rule::Below {
+                    left: Operand::Indicator(IndicatorRef {
+                        indicator_type: IndicatorType::Macd {
+                            fast: 12,
+                            slow: 26,
+                            signal: 9,
+                        },
+                        field: IndicatorField::MacdHistogram,
+                    }),
+                    right: Operand::Constant(0.0),
+                },
+            ]),
+        ]);
+        let inds = extract_indicators(&rule);
+        assert_eq!(inds.len(), 4);
+        assert!(inds.contains(&IndicatorType::Sma(20)));
+        assert!(inds.contains(&IndicatorType::Sma(50)));
+        assert!(inds.contains(&IndicatorType::Rsi(14)));
+        assert!(inds.contains(&IndicatorType::Macd {
+            fast: 12,
+            slow: 26,
+            signal: 9,
+        }));
+    }
+
+    #[test]
+    fn extract_indicators_from_not_and_temporal() {
+        let rule = Rule::Not(Box::new(Rule::Consecutive {
+            rule: Box::new(Rule::Below {
+                left: Operand::Indicator(IndicatorRef {
+                    indicator_type: IndicatorType::Atr(14),
+                    field: IndicatorField::Value,
+                }),
+                right: Operand::Constant(1.5),
+            }),
+            count: 3,
+        }));
+        let inds = extract_indicators(&rule);
+        assert_eq!(inds.len(), 1);
+        assert!(inds.contains(&IndicatorType::Atr(14)));
+    }
+
+    #[test]
+    fn extract_indicators_from_between() {
+        let rule = Rule::Between {
+            operand: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Rsi(14),
+                field: IndicatorField::Value,
+            }),
+            lower: 30.0,
+            upper: 70.0,
+        };
+        let inds = extract_indicators(&rule);
+        assert_eq!(inds.len(), 1);
+        assert!(inds.contains(&IndicatorType::Rsi(14)));
+    }
+
+    // --- Display tests ---
+
+    #[test]
+    fn display_simple_rule() {
+        let rule = Rule::CrossAbove {
+            left: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Sma(20),
+                field: IndicatorField::Value,
+            }),
+            right: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Sma(50),
+                field: IndicatorField::Value,
+            }),
+        };
+        assert_eq!(rule.to_string(), "SMA(20) cross_above SMA(50)");
+    }
+
+    #[test]
+    fn display_indicator_with_field() {
+        let rule = Rule::Above {
+            left: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Macd {
+                    fast: 12,
+                    slow: 26,
+                    signal: 9,
+                },
+                field: IndicatorField::MacdHistogram,
+            }),
+            right: Operand::Constant(0.0),
+        };
+        assert_eq!(rule.to_string(), "MACD(12,26,9).histogram above 0");
+    }
+
+    #[test]
+    fn display_and_rule() {
+        let rule = Rule::And(vec![
+            Rule::Above {
+                left: Operand::Close,
+                right: Operand::Indicator(IndicatorRef {
+                    indicator_type: IndicatorType::Sma(200),
+                    field: IndicatorField::Value,
+                }),
+            },
+            Rule::Above {
+                left: Operand::Indicator(IndicatorRef {
+                    indicator_type: IndicatorType::Rsi(14),
+                    field: IndicatorField::Value,
+                }),
+                right: Operand::Constant(50.0),
+            },
+        ]);
+        assert_eq!(
+            rule.to_string(),
+            "close above SMA(200) AND RSI(14) above 50"
+        );
+    }
+
+    #[test]
+    fn display_between() {
+        let rule = Rule::Between {
+            operand: Operand::Indicator(IndicatorRef {
+                indicator_type: IndicatorType::Rsi(14),
+                field: IndicatorField::Value,
+            }),
+            lower: 30.0,
+            upper: 70.0,
+        };
+        assert_eq!(rule.to_string(), "RSI(14) between 30 70");
     }
 }
