@@ -14,11 +14,13 @@ pub struct PostgresAdapter {
 
 impl PostgresAdapter {
     pub fn from_config(config: &dyn ConfigPort) -> Result<Self, SamtraderError> {
+        // Try [postgres] connection_string first, fall back to [database] conninfo
         let connection_string = config
             .get_string("postgres", "connection_string")
+            .or_else(|| config.get_string("database", "conninfo"))
             .ok_or_else(|| SamtraderError::ConfigMissing {
-                section: "postgres".into(),
-                key: "connection_string".into(),
+                section: "database".into(),
+                key: "conninfo".into(),
             })?;
 
         let client =
@@ -144,8 +146,8 @@ mod tests {
         let result = PostgresAdapter::from_config(&config);
         match result {
             Err(SamtraderError::ConfigMissing { section, key }) => {
-                assert_eq!(section, "postgres");
-                assert_eq!(key, "connection_string");
+                assert_eq!(section, "database");
+                assert_eq!(key, "conninfo");
             }
             Err(other) => panic!("expected ConfigMissing, got: {other}"),
             Ok(_) => panic!("expected error, got Ok"),

@@ -11,14 +11,9 @@
 ;   samtrader list-symbols --exchange ASX -c config.ini
 
 ; --- Database Connection ---
-; Both sections are required: [database] for config validation,
-; [postgres] for the actual database connection.
 
 [database]
-conninfo = host=localhost port=5432 dbname=marketdata user=samtrader password=changeme
-
-[postgres]
-connection_string = host=localhost port=5432 dbname=marketdata user=samtrader password=changeme
+conninfo = postgresql://user:password@127.0.0.1:5432/samtrader
 
 ; --- Backtest Parameters ---
 
@@ -28,14 +23,14 @@ start_date = 2020-01-01
 end_date = 2024-12-31
 
 ; Required: exchange identifier
-exchange = ASX
+exchange = AU
 
 ; Required: comma-separated stock codes (or use 'code' for single)
-codes = BHP,CBA,WBC,NAB
+codes = CBA, BHP, WBC, NAB
 
 ; Optional (defaults shown):
 initial_capital = 100000.0
-commission_per_trade = 10.0
+commission_per_trade = 9.95
 commission_pct = 0.0
 slippage_pct = 0.001
 risk_free_rate = 0.05

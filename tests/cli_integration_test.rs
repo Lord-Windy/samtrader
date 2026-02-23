@@ -30,9 +30,6 @@ const VALID_INI: &str = r#"
 [database]
 conninfo = host=localhost dbname=samtrader
 
-[postgres]
-connection_string = host=localhost dbname=samtrader
-
 [backtest]
 initial_capital = 100000.0
 commission_per_trade = 10.0
