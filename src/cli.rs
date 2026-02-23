@@ -206,34 +206,30 @@ fn run_validate(strategy_path: &PathBuf) -> ExitCode {
         }
     }
 
-    if let Some(entry_short) = adapter.get_string("strategy", "entry_short") {
-        if !entry_short.trim().is_empty() {
-            eprintln!("\nEntry Short Rule:");
-            match rule_parser::parse(&entry_short) {
-                Ok(rule) => {
-                    eprintln!("  Parsed: {}", rule);
-                    eprintln!("  Raw:    {}", entry_short);
-                }
-                Err(e) => {
-                    eprintln!("  error: {}", e.display_with_context(&entry_short));
-                    return (&SamtraderError::from(e)).into();
-                }
+    if let Some(entry_short) = adapter.get_string("strategy", "entry_short").filter(|s| !s.trim().is_empty()) {
+        eprintln!("\nEntry Short Rule:");
+        match rule_parser::parse(&entry_short) {
+            Ok(rule) => {
+                eprintln!("  Parsed: {}", rule);
+                eprintln!("  Raw:    {}", entry_short);
+            }
+            Err(e) => {
+                eprintln!("  error: {}", e.display_with_context(&entry_short));
+                return (&SamtraderError::from(e)).into();
             }
         }
     }
 
-    if let Some(exit_short) = adapter.get_string("strategy", "exit_short") {
-        if !exit_short.trim().is_empty() {
-            eprintln!("\nExit Short Rule:");
-            match rule_parser::parse(&exit_short) {
-                Ok(rule) => {
-                    eprintln!("  Parsed: {}", rule);
-                    eprintln!("  Raw:    {}", exit_short);
-                }
-                Err(e) => {
-                    eprintln!("  error: {}", e.display_with_context(&exit_short));
-                    return (&SamtraderError::from(e)).into();
-                }
+    if let Some(exit_short) = adapter.get_string("strategy", "exit_short").filter(|s| !s.trim().is_empty()) {
+        eprintln!("\nExit Short Rule:");
+        match rule_parser::parse(&exit_short) {
+            Ok(rule) => {
+                eprintln!("  Parsed: {}", rule);
+                eprintln!("  Raw:    {}", exit_short);
+            }
+            Err(e) => {
+                eprintln!("  error: {}", e.display_with_context(&exit_short));
+                return (&SamtraderError::from(e)).into();
             }
         }
     }
