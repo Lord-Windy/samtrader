@@ -30,6 +30,10 @@ impl CodeData {
         }
     }
 
+    pub fn bar_count(&self) -> usize {
+        self.ohlcv.len()
+    }
+
     pub fn get_bar(&self, date: NaiveDate) -> Option<&OhlcvBar> {
         self.date_index.get(&date).map(|&i| &self.ohlcv[i])
     }
