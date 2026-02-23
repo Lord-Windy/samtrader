@@ -11,16 +11,16 @@ use super::position::{ClosedTrade, Position};
 
 /// Configuration for backtest execution parameters.
 #[derive(Debug, Clone, PartialEq)]
-pub struct BacktestConfig {
+pub struct ExecutionConfig {
     pub commission_per_trade: f64,
     pub commission_pct: f64,
     pub slippage_pct: f64,
     pub allow_shorting: bool,
 }
 
-impl Default for BacktestConfig {
+impl Default for ExecutionConfig {
     fn default() -> Self {
-        BacktestConfig {
+        ExecutionConfig {
             commission_per_trade: 0.0,
             commission_pct: 0.0,
             slippage_pct: 0.0,
@@ -48,7 +48,7 @@ impl Default for ExecutionParams {
 }
 
 /// Calculate commission: flat_fee + (trade_value * pct / 100).
-pub fn calculate_commission(trade_value: f64, config: &BacktestConfig) -> f64 {
+pub fn calculate_commission(trade_value: f64, config: &ExecutionConfig) -> f64 {
     config.commission_per_trade + (trade_value * config.commission_pct / 100.0)
 }
 
@@ -106,7 +106,7 @@ pub fn enter_long(
     market_price: f64,
     date: NaiveDate,
     params: &ExecutionParams,
-    config: &BacktestConfig,
+    config: &ExecutionConfig,
 ) -> EntryResult {
     let execution_price = apply_slippage_long_entry(market_price, config.slippage_pct);
 
@@ -175,7 +175,7 @@ pub fn enter_short(
     market_price: f64,
     date: NaiveDate,
     params: &ExecutionParams,
-    config: &BacktestConfig,
+    config: &ExecutionConfig,
 ) -> EntryResult {
     if !config.allow_shorting {
         return EntryResult::InsufficientCapital;
@@ -259,7 +259,7 @@ pub fn exit_position(
     market_price: f64,
     exit_date: NaiveDate,
     entry_commission: f64,
-    config: &BacktestConfig,
+    config: &ExecutionConfig,
 ) -> Option<ExitResult> {
     let position = portfolio.remove_position(code)?;
 
@@ -321,7 +321,7 @@ pub fn check_triggers(
     price_map: &HashMap<String, f64>,
     date: NaiveDate,
     entry_commissions: &HashMap<String, f64>,
-    config: &BacktestConfig,
+    config: &ExecutionConfig,
 ) -> usize {
     let triggered_codes: Vec<String> = portfolio
         .positions
@@ -355,8 +355,8 @@ mod tests {
         Portfolio::new(cash)
     }
 
-    fn make_config() -> BacktestConfig {
-        BacktestConfig {
+    fn make_config() -> ExecutionConfig {
+        ExecutionConfig {
             commission_per_trade: 10.0,
             commission_pct: 0.1,
             slippage_pct: 0.05,
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn calculate_commission_basic() {
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 10.0,
             commission_pct: 0.1,
             ..Default::default()
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn calculate_commission_zero_flat_fee() {
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 0.0,
             commission_pct: 0.5,
             ..Default::default()
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn calculate_commission_zero_pct() {
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 10.0,
             commission_pct: 0.0,
             ..Default::default()
@@ -872,7 +872,7 @@ mod tests {
     #[test]
     fn round_trip_pnl_calculation() {
         let mut portfolio = make_portfolio(100000.0);
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 10.0,
             commission_pct: 0.0,
             slippage_pct: 0.0,
@@ -1031,7 +1031,7 @@ mod tests {
         // Edge case: quantity > 0 but cost + commission > cash
         // Use high commission rate so the commission tips it over
         let mut portfolio = make_portfolio(100.0);
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 0.0,
             commission_pct: 50.0, // 50% commission rate
             slippage_pct: 0.0,
@@ -1150,7 +1150,7 @@ mod tests {
         // Verify that a short entry + exit with no slippage and no commissions
         // at the same price returns cash to exactly the starting amount
         let mut portfolio = make_portfolio(100000.0);
-        let config = BacktestConfig {
+        let config = ExecutionConfig {
             commission_per_trade: 0.0,
             commission_pct: 0.0,
             slippage_pct: 0.0,

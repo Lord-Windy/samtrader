@@ -7,7 +7,7 @@ use chrono::NaiveDate;
 use std::collections::HashMap;
 
 use super::code_data::CodeData;
-use super::execution::{self, BacktestConfig as ExecutionConfig, EntryResult, ExecutionParams};
+use super::execution::{self, EntryResult, ExecutionConfig, ExecutionParams};
 use super::portfolio::Portfolio;
 use super::rule_eval;
 use super::strategy::Strategy;
@@ -52,10 +52,6 @@ pub fn run_backtest(
     };
 
     for &date in timeline {
-        if date < config.start_date || date > config.end_date {
-            continue;
-        }
-
         let mut price_map: HashMap<String, f64> = HashMap::new();
         for cd in code_data {
             if let Some(bar) = cd.get_bar(date) {
@@ -180,39 +176,6 @@ mod tests {
     }
 
     #[test]
-    fn config_fields() {
-        let c = sample_config();
-        assert_eq!(c.start_date, NaiveDate::from_ymd_opt(2020, 1, 1).unwrap());
-        assert_eq!(c.end_date, NaiveDate::from_ymd_opt(2024, 12, 31).unwrap());
-        assert!((c.initial_capital - 100_000.0).abs() < f64::EPSILON);
-        assert!((c.commission_per_trade - 0.0).abs() < f64::EPSILON);
-        assert!((c.commission_pct - 0.0).abs() < f64::EPSILON);
-        assert!((c.slippage_pct - 0.0).abs() < f64::EPSILON);
-        assert!(!c.allow_shorting);
-        assert!((c.risk_free_rate - 0.05).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn config_with_shorting() {
-        let c = BacktestConfig {
-            allow_shorting: true,
-            ..sample_config()
-        };
-        assert!(c.allow_shorting);
-    }
-
-    #[test]
-    fn config_with_commission() {
-        let c = BacktestConfig {
-            commission_per_trade: 10.0,
-            commission_pct: 0.1,
-            ..sample_config()
-        };
-        assert!((c.commission_per_trade - 10.0).abs() < f64::EPSILON);
-        assert!((c.commission_pct - 0.1).abs() < f64::EPSILON);
-    }
-
-    #[test]
     fn run_backtest_no_trades() {
         let bars = vec![
             make_bar("BHP", "2024-01-01", 90.0),
@@ -222,11 +185,7 @@ mod tests {
         let code_data = make_code_data("BHP", bars);
         let timeline = build_unified_timeline(&[code_data.clone()]);
         let strategy = make_simple_strategy();
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
@@ -246,11 +205,7 @@ mod tests {
         let code_data = make_code_data("BHP", bars);
         let timeline = build_unified_timeline(&[code_data.clone()]);
         let strategy = make_simple_strategy();
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
@@ -267,6 +222,16 @@ mod tests {
         );
         assert!((trade.entry_price - 110.0).abs() < f64::EPSILON);
         assert!((trade.exit_price - 95.0).abs() < f64::EPSILON);
+
+        // position_size=0.25, so available = 100_000 * 0.25 = 25_000
+        // quantity = floor(25_000 / 110) = 227
+        // cost = 227 * 110 = 24_970
+        // exit_value = 227 * 95 = 21_565
+        // pnl = 227 * (95 - 110) = -3_405
+        assert_eq!(trade.quantity, 227);
+        assert!((trade.pnl - (-3_405.0)).abs() < f64::EPSILON);
+        // cash = (100_000 - 24_970) + 21_565 = 96_595
+        assert!((result.portfolio.cash - 96_595.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -279,11 +244,7 @@ mod tests {
         let code_data = make_code_data("BHP", bars);
         let timeline = build_unified_timeline(&[code_data.clone()]);
         let strategy = make_simple_strategy();
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
@@ -294,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn run_backtest_respects_start_end_dates() {
+    fn run_backtest_processes_all_timeline_dates() {
         let bars = vec![
             make_bar("BHP", "2024-01-01", 110.0),
             make_bar("BHP", "2024-01-02", 110.0),
@@ -303,13 +264,14 @@ mod tests {
             make_bar("BHP", "2024-01-05", 90.0),
         ];
         let code_data = make_code_data("BHP", bars);
-        let timeline = build_unified_timeline(&[code_data.clone()]);
+        // Pass a subset of the timeline — caller controls date range
+        let timeline: Vec<NaiveDate> = vec![
+            NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 4).unwrap(),
+        ];
         let strategy = make_simple_strategy();
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 4).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
@@ -340,11 +302,7 @@ mod tests {
         let cba = make_code_data("CBA", cba_bars);
         let timeline = build_unified_timeline(&[bhp.clone(), cba.clone()]);
         let strategy = make_simple_strategy();
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[bhp, cba], &timeline, &strategy, &config);
 
@@ -369,11 +327,7 @@ mod tests {
         let timeline = build_unified_timeline(&[bhp.clone(), cba.clone()]);
         let mut strategy = make_simple_strategy();
         strategy.max_positions = 2;
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
-        };
+        let config = sample_config();
 
         let result = run_backtest(&[bhp, cba], &timeline, &strategy, &config);
 
@@ -382,6 +336,11 @@ mod tests {
 
     #[test]
     fn run_backtest_stop_loss_triggers() {
+        // Entry at 110 on day 2. Stop loss at 10% => trigger at 99.0.
+        // Day 3 close = 95 which is below 99 => stop loss fires.
+        // Exit rule is close < 100, which would also fire at 95,
+        // but we set exit_long to never fire (close < 0) to prove
+        // the trigger mechanism closed the position, not the rule.
         let bars = vec![
             make_bar("BHP", "2024-01-01", 90.0),
             make_bar("BHP", "2024-01-02", 110.0),
@@ -391,15 +350,18 @@ mod tests {
         let timeline = build_unified_timeline(&[code_data.clone()]);
         let mut strategy = make_simple_strategy();
         strategy.stop_loss_pct = 10.0;
-        let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
-            ..sample_config()
+        // Set exit rule to never fire (close < 0 is impossible)
+        strategy.exit_long = Rule::Below {
+            left: Operand::Close,
+            right: Operand::Constant(0.0),
         };
+        let config = sample_config();
 
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
         assert_eq!(result.portfolio.closed_trades.len(), 1);
+        let trade = &result.portfolio.closed_trades[0];
+        assert!((trade.exit_price - 95.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -418,6 +380,16 @@ mod tests {
 
     #[test]
     fn run_backtest_with_commission() {
+        // commission_per_trade = 10.0
+        // Entry at 110 on day 2:
+        //   available = 100_000 * 0.25 = 25_000
+        //   quantity = floor(25_000 / 110) = 227
+        //   cost = 227 * 110 = 24_970, commission = 10.0
+        //   cash after entry = 100_000 - 24_970 - 10 = 75_020
+        // Exit at 90 on day 3:
+        //   exit_value = 227 * 90 = 20_430, exit_commission = 10.0
+        //   cash after exit = 75_020 + 20_430 - 10 = 95_440
+        //   pnl = 227*(90-110) - 10 - 10 = -4_540 - 20 = -4_560
         let bars = vec![
             make_bar("BHP", "2024-01-01", 90.0),
             make_bar("BHP", "2024-01-02", 110.0),
@@ -427,8 +399,6 @@ mod tests {
         let timeline = build_unified_timeline(&[code_data.clone()]);
         let strategy = make_simple_strategy();
         let config = BacktestConfig {
-            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            end_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
             commission_per_trade: 10.0,
             ..sample_config()
         };
@@ -436,6 +406,8 @@ mod tests {
         let result = run_backtest(&[code_data], &timeline, &strategy, &config);
 
         assert_eq!(result.portfolio.closed_trades.len(), 1);
-        assert!(result.portfolio.cash < 100_000.0);
+        let trade = &result.portfolio.closed_trades[0];
+        assert!((trade.pnl - (-4_560.0)).abs() < f64::EPSILON);
+        assert!((result.portfolio.cash - 95_440.0).abs() < f64::EPSILON);
     }
 }
