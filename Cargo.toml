@@ -21,7 +21,7 @@ clap = { version = "4", features = ["derive"] }
 configparser = "3"
 csv = "1"
 thiserror = "2"
-postgres = { version = "0.19", optional = true }
+postgres = { version = "0.19", optional = true, features = ["with-chrono-0_4"] }
 
 [dev-dependencies]
 approx = "0.5"
