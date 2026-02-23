@@ -29,6 +29,22 @@ pub struct BacktestResult {
     pub portfolio: Portfolio,
 }
 
+/// Extended result for multi-code backtests (TRD Section 11.3).
+///
+/// Contains the aggregate portfolio result plus per-code breakdowns.
+#[derive(Debug, Clone)]
+pub struct MultiCodeResult {
+    pub aggregate: BacktestResult,
+    pub code_results: Vec<CodeResult>,
+}
+
+/// Per-code backtest breakdown.
+#[derive(Debug, Clone)]
+pub struct CodeResult {
+    pub code: String,
+    pub result: BacktestResult,
+}
+
 pub fn run_backtest(
     code_data: &[CodeData],
     timeline: &[NaiveDate],
