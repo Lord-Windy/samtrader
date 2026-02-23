@@ -3,6 +3,6 @@
 //! Hexagonal architecture: domain logic in [`domain`], port traits in [`ports`],
 //! concrete implementations in [`adapters`].
 
+pub mod adapters;
 pub mod domain;
 pub mod ports;
-pub mod adapters;

@@ -107,9 +107,10 @@ mod tests {
         assert!(bar.is_some());
         assert!((bar.unwrap().close - 101.0).abs() < f64::EPSILON);
 
-        assert!(cd
-            .get_bar(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())
-            .is_none());
+        assert!(
+            cd.get_bar(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())
+                .is_none()
+        );
     }
 
     #[test]

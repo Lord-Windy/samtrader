@@ -5,7 +5,7 @@
 //! - Calculation functions for all 13 indicator types from TRD Section 4.1
 
 use crate::domain::indicator::{
-    calculate_bollinger, IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue,
+    IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue, calculate_bollinger,
 };
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
