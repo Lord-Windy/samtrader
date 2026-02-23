@@ -7,6 +7,7 @@
 //! - `Rule`: The rule AST with comparison, composite, and temporal variants
 
 use crate::domain::indicator::IndicatorType;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
@@ -88,6 +89,45 @@ pub enum Rule {
         rule: Box<Rule>,
         count: usize,
     },
+}
+
+pub fn extract_indicators(rule: &Rule) -> HashSet<IndicatorType> {
+    let mut indicators = HashSet::new();
+    collect_indicators_from_rule(rule, &mut indicators);
+    indicators
+}
+
+fn collect_indicators_from_rule(rule: &Rule, indicators: &mut HashSet<IndicatorType>) {
+    match rule {
+        Rule::CrossAbove { left, right }
+        | Rule::CrossBelow { left, right }
+        | Rule::Above { left, right }
+        | Rule::Below { left, right }
+        | Rule::Equals { left, right } => {
+            collect_indicators_from_operand(left, indicators);
+            collect_indicators_from_operand(right, indicators);
+        }
+        Rule::Between { operand, .. } => {
+            collect_indicators_from_operand(operand, indicators);
+        }
+        Rule::And(rules) | Rule::Or(rules) => {
+            for r in rules {
+                collect_indicators_from_rule(r, indicators);
+            }
+        }
+        Rule::Not(inner) => {
+            collect_indicators_from_rule(inner, indicators);
+        }
+        Rule::Consecutive { rule: inner, .. } | Rule::AnyOf { rule: inner, .. } => {
+            collect_indicators_from_rule(inner, indicators);
+        }
+    }
+}
+
+fn collect_indicators_from_operand(operand: &Operand, indicators: &mut HashSet<IndicatorType>) {
+    if let Operand::Indicator(ind_ref) = operand {
+        indicators.insert(ind_ref.indicator_type.clone());
+    }
 }
 
 #[cfg(test)]
