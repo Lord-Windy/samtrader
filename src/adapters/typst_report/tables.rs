@@ -1,4 +1,4 @@
-//! Table formatting for reports (TRD Section 3.9, §12.1).
+//! Table formatting for reports (TRD §12.1).
 //!
 //! Provides functions to generate Typst markup for:
 //! - Monthly/yearly returns heatmap grid
@@ -39,7 +39,7 @@ pub fn compute_monthly_returns(equity_curve: &[EquityPoint]) -> Vec<MonthlyRetur
     let mut prev_end_equity: Option<f64> = None;
 
     for (year, month) in sorted_months {
-        let (start_eq, end_eq) = monthly_data[&(year, month)];
+        let (_start_eq, end_eq) = monthly_data[&(year, month)];
 
         let return_pct = if let Some(prev) = prev_end_equity {
             if prev > 0.0 {
@@ -47,9 +47,8 @@ pub fn compute_monthly_returns(equity_curve: &[EquityPoint]) -> Vec<MonthlyRetur
             } else {
                 0.0
             }
-        } else if start_eq > 0.0 {
-            (end_eq - start_eq) / start_eq
         } else {
+            // First month: no prior reference point, return is 0.
             0.0
         };
 
@@ -79,55 +78,65 @@ pub fn format_returns_heatmap(returns: &[MonthlyReturns]) -> String {
 
     let mut output = String::new();
     output.push_str("#table(\n");
-    output.push_str("  columns: 13,\n");
+    output.push_str("  columns: 14,\n");
     output.push_str("  [*Year*], [*Jan*], [*Feb*], [*Mar*], [*Apr*], [*May*], [*Jun*], ");
-    output.push_str("[*Jul*], [*Aug*], [*Sep*], [*Oct*], [*Nov*], [*Dec*],\n");
+    output.push_str("[*Jul*], [*Aug*], [*Sep*], [*Oct*], [*Nov*], [*Dec*], [*YTD*],\n");
 
     for (year, monthly) in years.iter() {
         output.push_str(&format!("  [{}],", year));
 
-        for (i, &opt_ret) in monthly.iter().enumerate() {
+        let mut ytd = 1.0_f64;
+        for &opt_ret in monthly.iter() {
             if let Some(ret) = opt_ret {
-                let color = return_color(ret);
-                let formatted = format_pct(ret);
-                output.push_str(&format!(" box(fill: {}, [{}]),", color, formatted));
+                ytd *= 1.0 + ret;
+                output.push_str(&format!(" {}, ", format_heatmap_cell(ret)));
             } else {
                 output.push_str(" [-],");
             }
-            if i == 11 {
-                output.push('\n');
-            }
         }
+        let ytd_ret = ytd - 1.0;
+        output.push_str(&format!(" {},\n", format_heatmap_cell(ytd_ret)));
     }
 
     output.push_str(")\n\n");
     output
 }
 
-fn return_color(ret: f64) -> &'static str {
+/// Returns (fill_color, needs_white_text) for a given return value.
+fn return_color(ret: f64) -> (&'static str, bool) {
     if ret >= 0.10 {
-        "rgb(\"#006400\")"
+        ("rgb(\"#006400\")", true)
     } else if ret >= 0.05 {
-        "rgb(\"#228B22\")"
+        ("rgb(\"#228B22\")", true)
     } else if ret >= 0.02 {
-        "rgb(\"#90EE90\")"
+        ("rgb(\"#90EE90\")", false)
     } else if ret > 0.0 {
-        "rgb(\"#E0FFE0\")"
+        ("rgb(\"#E0FFE0\")", false)
     } else if ret == 0.0 {
-        "rgb(\"#FFFFFF\")"
+        ("rgb(\"#FFFFFF\")", false)
     } else if ret > -0.02 {
-        "rgb(\"#FFE0E0\")"
+        ("rgb(\"#FFE0E0\")", false)
     } else if ret > -0.05 {
-        "rgb(\"#FF9090\")"
+        ("rgb(\"#FF9090\")", false)
     } else if ret > -0.10 {
-        "rgb(\"#FF4444\")"
+        ("rgb(\"#FF4444\")", true)
     } else {
-        "rgb(\"#8B0000\")"
+        ("rgb(\"#8B0000\")", true)
     }
 }
 
 fn format_pct(value: f64) -> String {
     format!("{:+.1}%", value * 100.0)
+}
+
+fn format_heatmap_cell(ret: f64) -> String {
+    let (color, white_text) = return_color(ret);
+    let formatted = format_pct(ret);
+    if white_text {
+        format!("box(fill: {}, text(fill: white, [{}]))", color, formatted)
+    } else {
+        format!("box(fill: {}, [{}])", color, formatted)
+    }
 }
 
 pub fn format_trade_log(trades: &[ClosedTrade]) -> String {
@@ -200,6 +209,7 @@ pub fn format_universe_summary(code_results: &[CodeResult]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
 
     fn make_equity_curve(values: &[(i32, u32, u32, f64)]) -> Vec<EquityPoint> {
         values
@@ -230,7 +240,8 @@ mod tests {
         assert_eq!(returns.len(), 1);
         assert_eq!(returns[0].year, 2024);
         assert_eq!(returns[0].month, 1);
-        assert!((returns[0].return_pct - 0.10).abs() < 1e-9);
+        // First month has no prior reference, return is 0.
+        assert!((returns[0].return_pct - 0.0).abs() < 1e-9);
     }
 
     #[test]
@@ -283,6 +294,7 @@ mod tests {
 
         assert!(output.contains("#table"));
         assert!(output.contains("[*Year*]"));
+        assert!(output.contains("[*YTD*]"));
         assert!(output.contains("[2024]"));
         assert!(output.contains("+5.0%"));
         assert!(output.contains("-2.0%"));
@@ -375,22 +387,32 @@ mod tests {
 
     #[test]
     fn return_color_positive() {
-        assert!(return_color(0.15).contains("006400"));
-        assert!(return_color(0.08).contains("228B22"));
-        assert!(return_color(0.03).contains("90EE90"));
-        assert!(return_color(0.01).contains("E0FFE0"));
+        assert!(return_color(0.15).0.contains("006400"));
+        assert!(return_color(0.08).0.contains("228B22"));
+        assert!(return_color(0.03).0.contains("90EE90"));
+        assert!(return_color(0.01).0.contains("E0FFE0"));
     }
 
     #[test]
     fn return_color_zero() {
-        assert!(return_color(0.0).contains("FFFFFF"));
+        assert!(return_color(0.0).0.contains("FFFFFF"));
     }
 
     #[test]
     fn return_color_negative() {
-        assert!(return_color(-0.01).contains("FFE0E0"));
-        assert!(return_color(-0.03).contains("FF9090"));
-        assert!(return_color(-0.08).contains("FF4444"));
-        assert!(return_color(-0.15).contains("8B0000"));
+        assert!(return_color(-0.01).0.contains("FFE0E0"));
+        assert!(return_color(-0.03).0.contains("FF9090"));
+        assert!(return_color(-0.08).0.contains("FF4444"));
+        assert!(return_color(-0.15).0.contains("8B0000"));
+    }
+
+    #[test]
+    fn return_color_white_text_on_dark() {
+        assert!(return_color(0.15).1, "dark green needs white text");
+        assert!(return_color(0.08).1, "forest green needs white text");
+        assert!(!return_color(0.03).1, "light green uses dark text");
+        assert!(return_color(-0.08).1, "red needs white text");
+        assert!(return_color(-0.15).1, "dark red needs white text");
+        assert!(!return_color(-0.01).1, "light pink uses dark text");
     }
 }
