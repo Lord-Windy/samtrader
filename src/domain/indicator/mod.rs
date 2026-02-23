@@ -7,6 +7,7 @@
 //! - `IndicatorSeries`: A time series of indicator values
 
 mod obv;
+pub mod stddev;
 
 pub use obv::*;
 
