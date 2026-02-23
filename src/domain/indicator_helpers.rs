@@ -133,17 +133,18 @@ fn compute_wma(bars: &[OhlcvBar], period: usize) -> Vec<IndicatorPoint> {
     let mut result = Vec::with_capacity(bars.len());
     let divisor = (period * (period + 1)) as f64 / 2.0;
     let mut weighted_sum = 0.0;
-    let mut simple_sum = 0.0;
+    let mut window_sum = 0.0;
 
     for (i, bar) in bars.iter().enumerate() {
-        simple_sum += bar.close;
-
-        if i >= period {
-            simple_sum -= bars[i - period].close;
-            weighted_sum += period as f64 * bar.close - simple_sum;
-        } else {
+        if i < period {
             let weight = (i + 1) as f64;
             weighted_sum += weight * bar.close;
+            window_sum += bar.close;
+        } else {
+            // Recurrence: new_weighted = old_weighted + period*new_close - old_window_sum
+            // window_sum must be updated AFTER use (it represents the previous window).
+            weighted_sum += period as f64 * bar.close - window_sum;
+            window_sum += bar.close - bars[i - period].close;
         }
 
         let valid = i >= period - 1;
@@ -661,6 +662,8 @@ mod tests {
             make_simple_bar("2024-01-01", 10.0),
             make_simple_bar("2024-01-02", 20.0),
             make_simple_bar("2024-01-03", 30.0),
+            make_simple_bar("2024-01-04", 40.0),
+            make_simple_bar("2024-01-05", 50.0),
         ];
 
         let series = compute_indicator(&bars, &IndicatorType::Wma(3));
@@ -669,9 +672,20 @@ mod tests {
         assert!(!series.values[1].valid);
         assert!(series.values[2].valid);
 
+        // i=2: (1*10 + 2*20 + 3*30) / 6 = 140/6
         let v2 = extract_simple_value(&series.values[2].value).unwrap();
-        let expected = (3.0 * 30.0 + 2.0 * 20.0 + 1.0 * 10.0) / 6.0;
-        assert!((v2 - expected).abs() < f64::EPSILON);
+        let expected2 = (1.0 * 10.0 + 2.0 * 20.0 + 3.0 * 30.0) / 6.0;
+        assert!((v2 - expected2).abs() < f64::EPSILON);
+
+        // i=3: (1*20 + 2*30 + 3*40) / 6 = 200/6 (sliding window)
+        let v3 = extract_simple_value(&series.values[3].value).unwrap();
+        let expected3 = (1.0 * 20.0 + 2.0 * 30.0 + 3.0 * 40.0) / 6.0;
+        assert!((v3 - expected3).abs() < f64::EPSILON);
+
+        // i=4: (1*30 + 2*40 + 3*50) / 6 = 260/6
+        let v4 = extract_simple_value(&series.values[4].value).unwrap();
+        let expected4 = (1.0 * 30.0 + 2.0 * 40.0 + 3.0 * 50.0) / 6.0;
+        assert!((v4 - expected4).abs() < f64::EPSILON);
     }
 
     #[test]
