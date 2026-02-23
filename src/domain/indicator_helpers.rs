@@ -5,7 +5,8 @@
 //! - Calculation functions for all 13 indicator types from TRD Section 4.1
 
 use crate::domain::indicator::{
-    IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue, calculate_bollinger,
+    calculate_bollinger, calculate_ema, IndicatorPoint, IndicatorSeries, IndicatorType,
+    IndicatorValue,
 };
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
@@ -16,7 +17,9 @@ pub type IndicatorCache = HashMap<IndicatorType, IndicatorSeries>;
 pub fn compute_indicator(bars: &[OhlcvBar], indicator_type: &IndicatorType) -> IndicatorSeries {
     let values = match indicator_type {
         IndicatorType::Sma(period) => compute_sma(bars, *period),
-        IndicatorType::Ema(period) => compute_ema(bars, *period),
+        IndicatorType::Ema(period) => {
+            return calculate_ema(bars, *period);
+        }
         IndicatorType::Wma(period) => compute_wma(bars, *period),
         IndicatorType::Rsi(period) => compute_rsi(bars, *period),
         IndicatorType::Roc(period) => compute_roc(bars, *period),
@@ -97,33 +100,6 @@ fn compute_sma(bars: &[OhlcvBar], period: usize) -> Vec<IndicatorPoint> {
         let value = if valid { sum / period as f64 } else { 0.0 };
 
         result.push(make_point(bar.date, valid, IndicatorValue::Simple(value)));
-    }
-
-    result
-}
-
-fn compute_ema(bars: &[OhlcvBar], period: usize) -> Vec<IndicatorPoint> {
-    if period == 0 || bars.is_empty() {
-        return Vec::new();
-    }
-
-    let mut result = Vec::with_capacity(bars.len());
-    let k = 2.0 / (period as f64 + 1.0);
-    let mut ema = 0.0;
-    let mut sum = 0.0;
-
-    for (i, bar) in bars.iter().enumerate() {
-        if i < period - 1 {
-            sum += bar.close;
-            result.push(make_point(bar.date, false, IndicatorValue::Simple(0.0)));
-        } else if i == period - 1 {
-            sum += bar.close;
-            ema = sum / period as f64;
-            result.push(make_point(bar.date, true, IndicatorValue::Simple(ema)));
-        } else {
-            ema = bar.close * k + ema * (1.0 - k);
-            result.push(make_point(bar.date, true, IndicatorValue::Simple(ema)));
-        }
     }
 
     result

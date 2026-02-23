@@ -7,6 +7,7 @@
 //! - `IndicatorSeries`: A time series of indicator values
 
 mod bollinger;
+pub mod ema;
 mod obv;
 pub mod roc;
 mod rsi;
@@ -14,6 +15,7 @@ pub mod stddev;
 pub mod wma;
 
 pub use bollinger::*;
+pub use ema::*;
 pub use obv::*;
 pub use roc::*;
 pub use rsi::*;
