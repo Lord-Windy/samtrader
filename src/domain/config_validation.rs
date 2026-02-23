@@ -7,6 +7,7 @@ use crate::ports::config_port::ConfigPort;
 use chrono::NaiveDate;
 
 pub fn validate_backtest_config(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
+    validate_conninfo(config)?;
     validate_initial_capital(config)?;
     validate_commission(config)?;
     validate_slippage(config)?;
@@ -24,6 +25,17 @@ pub fn validate_strategy_config(config: &dyn ConfigPort) -> Result<(), Samtrader
     validate_max_positions(config)?;
     validate_entry_exit_rules(config)?;
     Ok(())
+}
+
+fn validate_conninfo(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
+    match config.get_string("database", "conninfo") {
+        Some(s) if !s.trim().is_empty() => Ok(()),
+        _ => Err(SamtraderError::ConfigInvalid {
+            section: "database".to_string(),
+            key: "conninfo".to_string(),
+            reason: "database connection string is required".to_string(),
+        }),
+    }
 }
 
 fn validate_initial_capital(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
@@ -72,7 +84,7 @@ fn validate_slippage(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
 
 fn validate_risk_free_rate(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
     let value = config.get_double("backtest", "risk_free_rate", 0.0);
-    if value < 0.0 || value >= 1.0 {
+    if !(0.0..1.0).contains(&value) {
         return Err(SamtraderError::ConfigInvalid {
             section: "backtest".to_string(),
             key: "risk_free_rate".to_string(),
@@ -216,14 +228,23 @@ mod tests {
     use super::*;
     use crate::adapters::file_config_adapter::FileConfigAdapter;
 
+    const DB: &str = "[database]\nconninfo = host=localhost dbname=test\n";
+
     fn make_config(content: &str) -> FileConfigAdapter {
         FileConfigAdapter::from_string(content).unwrap()
+    }
+
+    fn make_backtest_config(backtest_content: &str) -> FileConfigAdapter {
+        make_config(&format!("{DB}{backtest_content}"))
     }
 
     #[test]
     fn valid_backtest_config_passes() {
         let config = make_config(
             r#"
+[database]
+conninfo = host=localhost dbname=test
+
 [backtest]
 initial_capital = 100000.0
 commission_per_trade = 10.0
@@ -240,8 +261,22 @@ code = CBA
     }
 
     #[test]
+    fn missing_conninfo_fails() {
+        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let err = validate_backtest_config(&config).unwrap_err();
+        assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "conninfo"));
+    }
+
+    #[test]
+    fn empty_conninfo_fails() {
+        let config = make_config("[database]\nconninfo = \n[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let err = validate_backtest_config(&config).unwrap_err();
+        assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "conninfo"));
+    }
+
+    #[test]
     fn initial_capital_must_be_positive() {
-        let config = make_config("[backtest]\ninitial_capital = -100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = -100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "initial_capital")
@@ -250,7 +285,7 @@ code = CBA
 
     #[test]
     fn initial_capital_zero_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 0\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 0\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "initial_capital")
@@ -259,7 +294,7 @@ code = CBA
 
     #[test]
     fn commission_per_trade_negative_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\ncommission_per_trade = -5\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\ncommission_per_trade = -5\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "commission_per_trade")
@@ -268,7 +303,7 @@ code = CBA
 
     #[test]
     fn commission_pct_negative_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\ncommission_pct = -0.1\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\ncommission_pct = -0.1\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "commission_pct")
@@ -277,14 +312,14 @@ code = CBA
 
     #[test]
     fn slippage_negative_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nslippage_pct = -0.01\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nslippage_pct = -0.01\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "slippage_pct"));
     }
 
     #[test]
     fn risk_free_rate_out_of_range_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nrisk_free_rate = 1.5\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nrisk_free_rate = 1.5\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "risk_free_rate")
@@ -293,7 +328,7 @@ code = CBA
 
     #[test]
     fn risk_free_rate_negative_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nrisk_free_rate = -0.05\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nrisk_free_rate = -0.05\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(
             matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "risk_free_rate")
@@ -302,42 +337,42 @@ code = CBA
 
     #[test]
     fn invalid_start_date_format_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020/01/01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2020/01/01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "start_date"));
     }
 
     #[test]
     fn missing_end_date_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigMissing { key, .. } if key == "end_date"));
     }
 
     #[test]
     fn start_date_after_end_date_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2024-12-31\nend_date = 2020-01-01\nexchange = ASX\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2024-12-31\nend_date = 2020-01-01\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "start_date"));
     }
 
     #[test]
     fn missing_exchange_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\ncode = CBA\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigMissing { key, .. } if key == "exchange"));
     }
 
     #[test]
     fn missing_code_fails() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\n");
         let err = validate_backtest_config(&config).unwrap_err();
         assert!(matches!(err, SamtraderError::ConfigMissing { key, .. } if key == "code"));
     }
 
     #[test]
     fn codes_field_accepted() {
-        let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncodes = CBA,BHP,WBC\n");
+        let config = make_backtest_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncodes = CBA,BHP,WBC\n");
         assert!(validate_backtest_config(&config).is_ok());
     }
 
