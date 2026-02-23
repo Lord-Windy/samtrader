@@ -127,10 +127,7 @@ pub fn validate_universe(
         // otherwise exit code 5 (insufficient data).
         if fetch_errors == skipped.len() && fetch_errors > 0 {
             return Err(SamtraderError::Database {
-                reason: format!(
-                    "failed to fetch data for any code on {}",
-                    exchange
-                ),
+                reason: format!("failed to fetch data for any code on {}", exchange),
             });
         }
         return Err(SamtraderError::InsufficientData {
@@ -283,8 +280,8 @@ mod tests {
             .with_bars("BHP", 40);
         let codes = vec!["CBA".to_string(), "BHP".to_string()];
 
-        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
-            .unwrap();
+        let result =
+            validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31)).unwrap();
 
         assert_eq!(result.universe.codes, vec!["CBA", "BHP"]);
         assert_eq!(result.universe.exchange, "ASX");
@@ -298,8 +295,8 @@ mod tests {
             .with_bars("XYZ", 10); // below MIN_OHLCV_BARS
         let codes = vec!["CBA".to_string(), "XYZ".to_string()];
 
-        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
-            .unwrap();
+        let result =
+            validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31)).unwrap();
 
         assert_eq!(result.universe.codes, vec!["CBA"]);
         assert_eq!(result.skipped.len(), 1);
@@ -316,8 +313,8 @@ mod tests {
         // BHP has no data entry so fetch returns empty vec
         let codes = vec!["CBA".to_string(), "BHP".to_string()];
 
-        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
-            .unwrap();
+        let result =
+            validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31)).unwrap();
 
         assert_eq!(result.universe.codes, vec!["CBA"]);
         assert_eq!(result.skipped.len(), 1);
@@ -332,8 +329,8 @@ mod tests {
             .with_error("BAD", "connection refused");
         let codes = vec!["CBA".to_string(), "BAD".to_string()];
 
-        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
-            .unwrap();
+        let result =
+            validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31)).unwrap();
 
         assert_eq!(result.universe.codes, vec!["CBA"]);
         assert_eq!(result.skipped.len(), 1);
@@ -342,9 +339,7 @@ mod tests {
 
     #[test]
     fn test_validate_all_codes_fail_insufficient_data_exit_5() {
-        let port = MockDataPort::new()
-            .with_bars("XYZ", 10)
-            .with_bars("FOO", 5);
+        let port = MockDataPort::new().with_bars("XYZ", 10).with_bars("FOO", 5);
         let codes = vec!["XYZ".to_string(), "FOO".to_string()];
 
         let err = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
@@ -375,8 +370,8 @@ mod tests {
         let port = MockDataPort::new().with_bars("CBA", MIN_OHLCV_BARS);
         let codes = vec!["CBA".to_string()];
 
-        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
-            .unwrap();
+        let result =
+            validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31)).unwrap();
 
         assert_eq!(result.universe.codes, vec!["CBA"]);
         assert!(result.skipped.is_empty());

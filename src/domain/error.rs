@@ -12,7 +12,12 @@ impl ParseError {
     /// Format the error with a caret pointing at the error position in the input.
     pub fn display_with_context(&self, input: &str) -> String {
         let caret = " ".repeat(self.position) + "^";
-        format!("{input}\n{caret}\n{err}", input = input, caret = caret, err = self)
+        format!(
+            "{input}\n{caret}\n{err}",
+            input = input,
+            caret = caret,
+            err = self
+        )
     }
 }
 

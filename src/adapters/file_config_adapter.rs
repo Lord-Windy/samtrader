@@ -107,8 +107,7 @@ max_positions = 5
 
     #[test]
     fn get_int_returns_value() {
-        let adapter =
-            FileConfigAdapter::from_string("[backtest]\nmax_positions = 5\n").unwrap();
+        let adapter = FileConfigAdapter::from_string("[backtest]\nmax_positions = 5\n").unwrap();
         assert_eq!(adapter.get_int("backtest", "max_positions", 0), 5);
     }
 
@@ -120,8 +119,7 @@ max_positions = 5
 
     #[test]
     fn get_int_returns_default_for_non_numeric() {
-        let adapter =
-            FileConfigAdapter::from_string("[backtest]\nmax_positions = abc\n").unwrap();
+        let adapter = FileConfigAdapter::from_string("[backtest]\nmax_positions = abc\n").unwrap();
         assert_eq!(adapter.get_int("backtest", "max_positions", 42), 42);
     }
 
