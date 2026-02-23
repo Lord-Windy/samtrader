@@ -8,8 +8,10 @@
 
 mod obv;
 pub mod stddev;
+pub mod wma;
 
 pub use obv::*;
+pub use wma::*;
 
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
