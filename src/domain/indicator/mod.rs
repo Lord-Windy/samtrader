@@ -6,6 +6,8 @@
 //! - `IndicatorType`: Enum for indicator identity + parameters (serves as HashMap key)
 //! - `IndicatorSeries`: A time series of indicator values
 
+pub mod stddev;
+
 use chrono::NaiveDate;
 use std::fmt;
 
