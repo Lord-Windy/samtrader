@@ -8,6 +8,7 @@
 
 mod bollinger;
 pub mod ema;
+pub mod macd;
 mod obv;
 pub mod roc;
 mod rsi;
@@ -16,6 +17,7 @@ pub mod wma;
 
 pub use bollinger::*;
 pub use ema::*;
+pub use macd::*;
 pub use obv::*;
 pub use roc::*;
 pub use rsi::*;
