@@ -44,7 +44,7 @@ impl CodeResult {
                 if trade.pnl > entry.largest_win {
                     entry.largest_win = trade.pnl;
                 }
-            } else {
+            } else if trade.pnl < 0.0 {
                 entry.losing_trades += 1;
                 if trade.pnl < entry.largest_loss {
                     entry.largest_loss = trade.pnl;
@@ -594,5 +594,23 @@ mod tests {
         assert_eq!(results[0].code, "BHP");
         assert_eq!(results[1].code, "CBA");
         assert_eq!(results[2].code, "RIO");
+    }
+
+    #[test]
+    fn code_result_zero_pnl_is_neither_win_nor_loss() {
+        let trades = vec![
+            make_trade("BHP", 100.0, 5),
+            make_trade("BHP", 0.0, 3),
+            make_trade("BHP", -50.0, 2),
+        ];
+        let results = CodeResult::compute_per_code(&trades);
+
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert_eq!(r.total_trades, 3);
+        assert_eq!(r.winning_trades, 1);
+        assert_eq!(r.losing_trades, 1);
+        assert!((r.total_pnl - 50.0).abs() < 1e-9);
+        assert!((r.win_rate - 1.0 / 3.0).abs() < 1e-9);
     }
 }
