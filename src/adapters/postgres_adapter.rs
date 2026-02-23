@@ -86,3 +86,39 @@ impl DataPort for PostgresAdapter {
         Ok(symbols)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct EmptyConfig;
+
+    impl ConfigPort for EmptyConfig {
+        fn get_string(&self, _section: &str, _key: &str) -> Option<String> {
+            None
+        }
+        fn get_int(&self, _section: &str, _key: &str, default: i64) -> i64 {
+            default
+        }
+        fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
+            default
+        }
+        fn get_bool(&self, _section: &str, _key: &str, default: bool) -> bool {
+            default
+        }
+    }
+
+    #[test]
+    fn from_config_missing_connection_string() {
+        let config = EmptyConfig;
+        let result = PostgresAdapter::from_config(&config);
+        match result {
+            Err(SamtraderError::ConfigMissing { section, key }) => {
+                assert_eq!(section, "postgres");
+                assert_eq!(key, "connection_string");
+            }
+            Err(other) => panic!("expected ConfigMissing, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+}
