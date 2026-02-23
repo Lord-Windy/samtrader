@@ -1,0 +1,97 @@
+; samtrader configuration file
+;
+; Copy this to config.ini and fill in your database connection details.
+;
+; Usage:
+;   samtrader backtest -c config.ini              Run a backtest
+;   samtrader backtest -c config.ini --dry-run    Validate config only
+;   samtrader backtest -c config.ini -s strat.ini Use separate strategy file
+;   samtrader backtest -c config.ini --code BHP   Override universe
+;   samtrader info -c config.ini                  Show data range for codes
+;   samtrader list-symbols --exchange ASX -c config.ini
+
+; --- Database Connection ---
+; Both sections are required: [database] for config validation,
+; [postgres] for the actual database connection.
+
+[database]
+conninfo = host=localhost port=5432 dbname=marketdata user=samtrader password=changeme
+
+[postgres]
+connection_string = host=localhost port=5432 dbname=marketdata user=samtrader password=changeme
+
+; --- Backtest Parameters ---
+
+[backtest]
+; Required: date range (YYYY-MM-DD)
+start_date = 2020-01-01
+end_date = 2024-12-31
+
+; Required: exchange identifier
+exchange = ASX
+
+; Required: comma-separated stock codes (or use 'code' for single)
+codes = BHP,CBA,WBC,NAB
+
+; Optional (defaults shown):
+initial_capital = 100000.0
+commission_per_trade = 10.0
+commission_pct = 0.0
+slippage_pct = 0.001
+risk_free_rate = 0.05
+allow_shorting = false
+
+; --- Strategy Rules ---
+;
+; Rule syntax is function-style:
+;   ABOVE(left, right)           left > right
+;   BELOW(left, right)           left < right
+;   CROSS_ABOVE(left, right)     left crosses above right
+;   CROSS_BELOW(left, right)     left crosses below right
+;   BETWEEN(value, low, high)    low < value < high
+;   EQUALS(left, right)          left == right
+;   AND(rule1, rule2)            both rules true
+;   OR(rule1, rule2)             either rule true
+;   NOT(rule)                    rule is false
+;   CONSECUTIVE(rule, n)         rule true for n bars
+;   ANY_OF(rule, n)              rule true n times in lookback
+;
+; Operands:
+;   close, open, high, low, volume    Price data
+;   SMA(n), EMA(n), WMA(n)           Moving averages
+;   RSI(n), ROC(n), ATR(n)           Momentum/volatility
+;   STDDEV(n), OBV, VWAP             Statistics
+;   MACD_LINE(f,s,sig)               MACD components
+;   MACD_SIGNAL(f,s,sig)
+;   MACD_HISTOGRAM(f,s,sig)
+;   STOCHASTIC_K(k,d)                Stochastic oscillator
+;   STOCHASTIC_D(k,d)
+;   BOLLINGER_UPPER(n,mult)           Bollinger Bands
+;   BOLLINGER_MIDDLE(n,mult)
+;   BOLLINGER_LOWER(n,mult)
+;   PIVOT, PIVOT_R1..R3, PIVOT_S1..S3
+;   123.45                            Numeric constants
+
+[strategy]
+name = SMA Crossover
+description = Buy when 20-day SMA crosses above 50-day SMA, sell on cross below
+
+entry_long = CROSS_ABOVE(SMA(20), SMA(50))
+exit_long = CROSS_BELOW(SMA(20), SMA(50))
+
+; Optional: short-selling rules (requires allow_shorting = true)
+; entry_short = CROSS_BELOW(SMA(20), SMA(50))
+; exit_short = CROSS_ABOVE(SMA(20), SMA(50))
+
+; Position sizing and risk management
+position_size = 0.25
+stop_loss = 5.0
+take_profit = 0.0
+max_positions = 4
+
+; --- Report Output ---
+
+[report]
+; Optional: path to custom Typst template
+; If omitted, uses the built-in default template
+; template_path = /path/to/custom_template.typ

@@ -7,154 +7,19 @@
 //! - Partial universe validation (some codes skipped, others proceed)
 //! - Backward compatibility: single `code` config produces identical results
 
-use chrono::NaiveDate;
-use samtrader::domain::backtest::{run_backtest, BacktestConfig, BacktestResult};
+mod common;
+
+use common::*;
+use samtrader::domain::backtest::{run_backtest, BacktestResult};
+use samtrader::ports::data_port::DataPort;
 use samtrader::domain::code_data::{build_unified_timeline, CodeData};
 use samtrader::domain::error::SamtraderError;
-use samtrader::domain::ohlcv::OhlcvBar;
 use samtrader::domain::rule::{Operand, Rule};
 use samtrader::domain::strategy::Strategy;
 use samtrader::domain::universe::{parse_codes, validate_universe, SkipReason, MIN_OHLCV_BARS};
-use samtrader::ports::data_port::DataPort;
 use samtrader::ports::report_port::ReportPort;
 use std::cell::RefCell;
 use std::collections::HashMap;
-
-struct MockDataPort {
-    data: HashMap<String, Vec<OhlcvBar>>,
-    errors: HashMap<String, String>,
-}
-
-impl MockDataPort {
-    fn new() -> Self {
-        Self {
-            data: HashMap::new(),
-            errors: HashMap::new(),
-        }
-    }
-
-    fn with_bars(mut self, code: &str, bars: Vec<OhlcvBar>) -> Self {
-        self.data.insert(code.to_string(), bars);
-        self
-    }
-
-    fn with_error(mut self, code: &str, reason: &str) -> Self {
-        self.errors.insert(code.to_string(), reason.to_string());
-        self
-    }
-}
-
-impl DataPort for MockDataPort {
-    fn fetch_ohlcv(
-        &self,
-        code: &str,
-        _exchange: &str,
-        _start_date: NaiveDate,
-        _end_date: NaiveDate,
-    ) -> Result<Vec<OhlcvBar>, SamtraderError> {
-        if let Some(reason) = self.errors.get(code) {
-            return Err(SamtraderError::Database {
-                reason: reason.clone(),
-            });
-        }
-        Ok(self.data.get(code).cloned().unwrap_or_default())
-    }
-
-    fn list_symbols(&self, _exchange: &str) -> Result<Vec<String>, SamtraderError> {
-        Ok(self.data.keys().cloned().collect())
-    }
-
-    fn get_data_range(
-        &self,
-        code: &str,
-        _exchange: &str,
-    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
-        if let Some(reason) = self.errors.get(code) {
-            return Err(SamtraderError::Database {
-                reason: reason.clone(),
-            });
-        }
-        match self.data.get(code) {
-            Some(bars) if !bars.is_empty() => {
-                let min = bars.iter().map(|b| b.date).min().unwrap();
-                let max = bars.iter().map(|b| b.date).max().unwrap();
-                Ok(Some((min, max, bars.len())))
-            }
-            _ => Ok(None),
-        }
-    }
-}
-
-fn make_bar(code: &str, date: &str, close: f64) -> OhlcvBar {
-    OhlcvBar {
-        code: code.to_string(),
-        exchange: "ASX".to_string(),
-        date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
-        open: close - 1.0,
-        high: close + 1.0,
-        low: close - 2.0,
-        close,
-        volume: 1000,
-    }
-}
-
-fn make_code_data(code: &str, bars: Vec<OhlcvBar>) -> CodeData {
-    CodeData::new(code.to_string(), "ASX".to_string(), bars)
-}
-
-fn make_simple_strategy() -> Strategy {
-    Strategy {
-        name: "Test".into(),
-        description: "Test strategy".into(),
-        entry_long: Rule::Above {
-            left: Operand::Close,
-            right: Operand::Constant(100.0),
-        },
-        exit_long: Rule::Below {
-            left: Operand::Close,
-            right: Operand::Constant(100.0),
-        },
-        entry_short: None,
-        exit_short: None,
-        position_size: 0.25,
-        stop_loss_pct: 0.0,
-        take_profit_pct: 0.0,
-        max_positions: 1,
-    }
-}
-
-fn sample_config() -> BacktestConfig {
-    BacktestConfig {
-        start_date: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
-        end_date: NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
-        initial_capital: 100_000.0,
-        commission_per_trade: 0.0,
-        commission_pct: 0.0,
-        slippage_pct: 0.0,
-        allow_shorting: false,
-        risk_free_rate: 0.05,
-    }
-}
-
-fn date(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).unwrap()
-}
-
-fn generate_bars(code: &str, start_date: &str, count: usize, start_price: f64) -> Vec<OhlcvBar> {
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d").unwrap();
-    (0..count)
-        .map(|i| OhlcvBar {
-            code: code.to_string(),
-            exchange: "ASX".to_string(),
-            date: start + chrono::Duration::days(i as i64),
-            open: start_price + i as f64,
-            high: start_price + i as f64 + 1.0,
-            low: start_price + i as f64 - 1.0,
-            close: start_price + i as f64,
-            volume: 1000,
-        })
-        .collect()
-}
 
 mod full_backtest_pipeline {
     use super::*;
@@ -744,7 +609,6 @@ mod report_generation {
         assert_eq!(calls.len(), 1);
         let (_, ref strat, ref path) = calls[0];
 
-        // TRD §12.1 Section 1: Strategy Summary — name, description, rules, parameters
         assert_eq!(strat.name, "Test");
         assert_eq!(strat.description, "Test strategy");
         assert_eq!(strat.position_size, 0.25);
@@ -774,11 +638,8 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 3: Equity Curve — must have one point per timeline date
         assert_eq!(res.portfolio.equity_curve.len(), 5);
-        // First point should equal initial capital (no position yet)
         assert!((res.portfolio.equity_curve[0].equity - 100_000.0).abs() < f64::EPSILON);
-        // Equity should change after trades
         let final_equity = res.portfolio.equity_curve.last().unwrap().equity;
         assert!(final_equity != 100_000.0);
     }
@@ -811,7 +672,6 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 7: Full Trade Log — all codes, sorted by date
         assert_eq!(res.portfolio.closed_trades.len(), 2);
         let codes: std::collections::HashSet<&str> = res
             .portfolio
@@ -822,7 +682,6 @@ mod report_generation {
         assert!(codes.contains("BHP"));
         assert!(codes.contains("CBA"));
 
-        // Each trade has the fields needed for the trade log table
         for trade in &res.portfolio.closed_trades {
             assert!(!trade.code.is_empty());
             assert!(trade.quantity > 0);
@@ -869,8 +728,6 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 5: Universe Summary Table — per-code trades, PnL
-        // Verify trades can be grouped by code for per-code detail sections
         let mut per_code: HashMap<&str, Vec<&samtrader::domain::position::ClosedTrade>> =
             HashMap::new();
         for trade in &res.portfolio.closed_trades {
@@ -882,12 +739,10 @@ mod report_generation {
         assert!(per_code.contains_key("CBA"));
         assert!(per_code.contains_key("RIO"));
 
-        // Each code has exactly one trade
         for (_, trades) in &per_code {
             assert_eq!(trades.len(), 1);
         }
 
-        // Per-code PnL is computable from closed trades
         for (_, trades) in &per_code {
             let code_pnl: f64 = trades.iter().map(|t| t.pnl).sum();
             assert!(code_pnl.is_finite());
@@ -916,11 +771,9 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 4: Drawdown Chart — derivable from equity curve
         let equity = &res.portfolio.equity_curve;
         assert!(equity.len() >= 2, "need at least 2 points for drawdown chart");
 
-        // Compute drawdown from equity curve to verify the data is sufficient
         let mut peak = equity[0].equity;
         let mut max_drawdown = 0.0_f64;
         for point in equity {
@@ -932,7 +785,6 @@ mod report_generation {
                 max_drawdown = dd;
             }
         }
-        // After a losing trade, drawdown should be non-zero
         assert!(max_drawdown > 0.0);
     }
 
@@ -958,17 +810,14 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 8: Monthly Returns Table — derivable from equity curve dates
         let equity = &res.portfolio.equity_curve;
         assert!(!equity.is_empty());
 
-        // Equity points have dates, which allows grouping by year/month
         let first_date = equity.first().unwrap().date;
         let last_date = equity.last().unwrap().date;
         assert_eq!(first_date.format("%Y-%m").to_string(), "2024-01");
         assert_eq!(last_date.format("%Y-%m").to_string(), "2024-01");
 
-        // Monthly return = (last equity in month - first equity in month) / first
         let monthly_return =
             (equity.last().unwrap().equity - equity.first().unwrap().equity) / equity.first().unwrap().equity;
         assert!(monthly_return.is_finite());
@@ -997,23 +846,18 @@ mod report_generation {
         let calls = report.calls.borrow();
         let ref res = calls[0].0;
 
-        // TRD §12.1 Section 2: Aggregate Performance Metrics
-        // All metrics from §10.1 are derivable from portfolio data
         let trades = &res.portfolio.closed_trades;
         assert!(trades.len() >= 2, "need trades for meaningful metrics");
 
-        // Total return
         let initial = res.portfolio.initial_capital;
         let final_equity = res.portfolio.equity_curve.last().unwrap().equity;
         let total_return = (final_equity - initial) / initial;
         assert!(total_return.is_finite());
 
-        // Win rate
         let winners = trades.iter().filter(|t| t.pnl > 0.0).count();
         let win_rate = winners as f64 / trades.len() as f64;
         assert!(win_rate >= 0.0 && win_rate <= 1.0);
 
-        // Profit factor (sum of wins / abs sum of losses)
         let gross_profit: f64 = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).sum();
         let gross_loss: f64 = trades
             .iter()

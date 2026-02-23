@@ -101,7 +101,7 @@ pub fn run(cli: Cli) -> ExitCode {
     }
 }
 
-fn load_config(path: &PathBuf) -> Result<FileConfigAdapter, ExitCode> {
+pub fn load_config(path: &PathBuf) -> Result<FileConfigAdapter, ExitCode> {
     FileConfigAdapter::from_file(path).map_err(|e| {
         let err = SamtraderError::ConfigParse {
             file: path.display().to_string(),
@@ -223,7 +223,7 @@ fn run_backtest(
     }
 }
 
-fn build_backtest_config(adapter: &dyn ConfigPort) -> Result<BacktestConfig, SamtraderError> {
+pub fn build_backtest_config(adapter: &dyn ConfigPort) -> Result<BacktestConfig, SamtraderError> {
     let start_str = adapter
         .get_string("backtest", "start_date")
         .ok_or_else(|| SamtraderError::ConfigMissing {
@@ -266,7 +266,7 @@ fn build_backtest_config(adapter: &dyn ConfigPort) -> Result<BacktestConfig, Sam
     })
 }
 
-fn build_strategy(adapter: &dyn ConfigPort) -> Result<Strategy, ExitCode> {
+pub fn build_strategy(adapter: &dyn ConfigPort) -> Result<Strategy, ExitCode> {
     let name = adapter
         .get_string("strategy", "name")
         .unwrap_or_else(|| "Unnamed".to_string());
@@ -350,7 +350,7 @@ fn build_strategy(adapter: &dyn ConfigPort) -> Result<Strategy, ExitCode> {
     })
 }
 
-fn collect_all_indicators(strategy: &Strategy) -> Vec<IndicatorType> {
+pub fn collect_all_indicators(strategy: &Strategy) -> Vec<IndicatorType> {
     let mut indicators = extract_indicators(&strategy.entry_long);
     indicators.extend(extract_indicators(&strategy.exit_long));
     if let Some(ref rule) = strategy.entry_short {
@@ -362,7 +362,7 @@ fn collect_all_indicators(strategy: &Strategy) -> Vec<IndicatorType> {
     indicators.into_iter().collect()
 }
 
-fn run_backtest_pipeline(
+pub fn run_backtest_pipeline(
     data_port: &dyn crate::ports::data_port::DataPort,
     strategy: &Strategy,
     bt_config: &BacktestConfig,
@@ -508,7 +508,7 @@ fn run_backtest_pipeline(
     }
 }
 
-fn run_dry_run(config_path: &PathBuf) -> ExitCode {
+pub fn run_dry_run(config_path: &PathBuf) -> ExitCode {
     eprintln!("Loading config from {}", config_path.display());
     let adapter = match load_config(config_path) {
         Ok(a) => a,
@@ -791,7 +791,7 @@ fn run_info(code: Option<&str>, exchange: Option<&str>, config_path: Option<&Pat
     }
 }
 
-fn resolve_codes(code_override: Option<&str>, config: &dyn ConfigPort) -> Vec<String> {
+pub fn resolve_codes(code_override: Option<&str>, config: &dyn ConfigPort) -> Vec<String> {
     if let Some(c) = code_override {
         return vec![c.to_uppercase()];
     }
