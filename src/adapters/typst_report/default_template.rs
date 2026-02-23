@@ -20,14 +20,17 @@ pub fn get_default_template() -> &'static str {
 
 == Summary
 
-| Metric | Value |
-| ------ | ----- |
-| Initial Capital | ${{INITIAL_CAPITAL}} |
-| Final Cash | ${{FINAL_CASH}} |
-| Total P&L | ${{TOTAL_PNL}} |
-| Return | {{RETURN_PCT}}% |
-| Trade Count | {{TRADE_COUNT}} |
-| Win Rate | {{WIN_RATE}}% |
+#table(
+  columns: 2,
+  align: (left, right),
+  [*Metric*], [*Value*],
+  [Initial Capital], [${{INITIAL_CAPITAL}}],
+  [Final Cash], [${{FINAL_CASH}}],
+  [Total P&L], [${{TOTAL_PNL}}],
+  [Return], [{{RETURN_PCT}}%],
+  [Trade Count], [{{TRADE_COUNT}}],
+  [Win Rate], [{{WIN_RATE}}%],
+)
 
 == Trades
 
@@ -63,5 +66,6 @@ mod tests {
         let template = get_default_template();
         assert!(template.starts_with("#set page"));
         assert!(template.contains("#align(center)"));
+        assert!(template.contains("#table("));
     }
 }

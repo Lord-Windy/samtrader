@@ -74,14 +74,14 @@ impl TypstReportAdapter {
         let trade_count = result.portfolio.closed_trades.len();
         context.insert("TRADE_COUNT", trade_count.to_string());
 
-        let winning_trades: Vec<_> = result
+        let win_count = result
             .portfolio
             .closed_trades
             .iter()
             .filter(|t| t.pnl > 0.0)
-            .collect();
+            .count();
         let win_rate = if trade_count > 0 {
-            (winning_trades.len() as f64 / trade_count as f64) * 100.0
+            (win_count as f64 / trade_count as f64) * 100.0
         } else {
             0.0
         };
@@ -125,28 +125,27 @@ impl ReportPort for TypstReportAdapter {
 
         let mut resolved = self.resolve_placeholders(&template, &context);
 
-        let per_code_summary: String = result
-            .code_results
-            .iter()
-            .map(|cr| {
-                let pnl: f64 = cr
-                    .result
-                    .portfolio
-                    .closed_trades
-                    .iter()
-                    .map(|t| t.pnl)
-                    .sum();
-                format!(
-                    "- {}: {} trades, P&L: {:.2}",
-                    cr.code,
-                    cr.result.portfolio.closed_trades.len(),
-                    pnl
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut per_code = String::from(
+            "#table(\n  columns: 3,\n  align: (left, right, right),\n  [*Code*], [*Trades*], [*P&L*],\n",
+        );
+        for cr in &result.code_results {
+            let pnl: f64 = cr
+                .result
+                .portfolio
+                .closed_trades
+                .iter()
+                .map(|t| t.pnl)
+                .sum();
+            per_code.push_str(&format!(
+                "  [{}], [{}], [{:.2}],\n",
+                cr.code,
+                cr.result.portfolio.closed_trades.len(),
+                pnl
+            ));
+        }
+        per_code.push(')');
 
-        resolved = resolved.replace("{{PER_CODE_SUMMARY}}", &per_code_summary);
+        resolved = resolved.replace("{{PER_CODE_SUMMARY}}", &per_code);
 
         fs::write(output_path, resolved).map_err(SamtraderError::Io)
     }

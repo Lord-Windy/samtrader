@@ -7,14 +7,16 @@ pub fn format_trades_table(trades: &[ClosedTrade]) -> String {
         return "No trades executed.".to_string();
     }
 
-    let mut rows: Vec<String> = vec![
-        "| Code | Exchange | Qty | Entry | Exit | Entry Date | Exit Date | P&L |".to_string(),
-        "| ---- | -------- | --- | ----- | ---- | ---------- | --------- | --- |".to_string(),
-    ];
+    let mut out = String::from(
+        "#table(\n  columns: 8,\n  align: (left, left, right, right, right, left, left, right),\n",
+    );
+    out.push_str(
+        "  [*Code*], [*Exchange*], [*Qty*], [*Entry*], [*Exit*], [*Entry Date*], [*Exit Date*], [*P&L*],\n",
+    );
 
     for trade in trades {
-        rows.push(format!(
-            "| {} | {} | {} | {:.2} | {:.2} | {} | {} | {:.2} |",
+        out.push_str(&format!(
+            "  [{}], [{}], [{}], [{:.2}], [{:.2}], [{}], [{}], [{:.2}],\n",
             trade.code,
             trade.exchange,
             trade.quantity,
@@ -26,7 +28,8 @@ pub fn format_trades_table(trades: &[ClosedTrade]) -> String {
         ));
     }
 
-    rows.join("\n")
+    out.push(')');
+    out
 }
 
 #[cfg(test)]
@@ -58,8 +61,8 @@ mod tests {
         let trades = vec![sample_trade("BHP", 500.0)];
         let result = format_trades_table(&trades);
 
-        assert!(result.contains("| Code |"));
-        assert!(result.contains("| BHP |"));
+        assert!(result.contains("#table("));
+        assert!(result.contains("[BHP]"));
         assert!(result.contains("500.00"));
     }
 
@@ -68,16 +71,17 @@ mod tests {
         let trades = vec![sample_trade("BHP", 500.0), sample_trade("CBA", -200.0)];
         let result = format_trades_table(&trades);
 
-        assert!(result.contains("BHP"));
-        assert!(result.contains("CBA"));
+        assert!(result.contains("[BHP]"));
+        assert!(result.contains("[CBA]"));
         assert!(result.contains("-200.00"));
     }
 
     #[test]
-    fn table_has_header_separator() {
+    fn table_has_header_row() {
         let trades = vec![sample_trade("BHP", 500.0)];
         let result = format_trades_table(&trades);
 
-        assert!(result.contains("| ---- |"));
+        assert!(result.contains("[*Code*]"));
+        assert!(result.contains("[*P&L*]"));
     }
 }
