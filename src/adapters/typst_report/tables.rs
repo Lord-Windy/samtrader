@@ -15,9 +15,9 @@ use crate::domain::strategy::Strategy;
 
 fn fmt_currency(value: f64) -> String {
     if value >= 0.0 {
-        format!("${:.2}", value)
+        format!("\\${:.2}", value)
     } else {
-        format!("-${:.2}", value.abs())
+        format!("-\\${:.2}", value.abs())
     }
 }
 
@@ -373,7 +373,7 @@ mod tests {
         assert!(out.contains("Entry Rule (Long)"));
         assert!(out.contains("close above 100"));
         assert!(out.contains("Position Size"));
-        assert!(out.contains("$100000.00"));
+        assert!(out.contains("\\$100000.00"));
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod tests {
         let out = render_trade_log(&trades);
         assert!(out.contains("#table("));
         assert!(out.contains("BHP"));
-        assert!(out.contains("$500.00"));
+        assert!(out.contains("\\$500.00"));
     }
 
     #[test]

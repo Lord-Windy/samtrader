@@ -4,7 +4,8 @@ use crate::domain::error::SamtraderError;
 use crate::domain::ohlcv::OhlcvBar;
 use crate::ports::config_port::ConfigPort;
 use crate::ports::data_port::DataPort;
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use postgres::types::ToSql;
 use postgres::{Client, NoTls};
 use std::cell::RefCell;
 
@@ -42,30 +43,43 @@ impl DataPort for PostgresAdapter {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<Vec<OhlcvBar>, SamtraderError> {
-        let query = "SELECT code, exchange, date, open, high, low, close, volume \
+        // Convert NaiveDate to DateTime<Utc> for timestamptz columns
+        let start_dt: DateTime<Utc> =
+            start_date.and_time(NaiveTime::MIN).and_utc();
+        let end_dt: DateTime<Utc> =
+            end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
+
+        let query = "SELECT code, exchange, date, \
+                            open::double precision, high::double precision, \
+                            low::double precision, close::double precision, \
+                            volume::bigint \
                      FROM public.ohlcv \
                      WHERE code = $1 AND exchange = $2 AND date >= $3 AND date <= $4 \
                      ORDER BY date ASC";
 
+        let params: &[&(dyn ToSql + Sync)] = &[&code, &exchange, &start_dt, &end_dt];
         let rows = self
             .client
             .borrow_mut()
-            .query(query, &[&code, &exchange, &start_date, &end_date])
+            .query(query, params)
             .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
             })?;
 
         let bars: Vec<OhlcvBar> = rows
             .into_iter()
-            .map(|row| OhlcvBar {
-                code: row.get(0),
-                exchange: row.get(1),
-                date: row.get(2),
-                open: row.get(3),
-                high: row.get(4),
-                low: row.get(5),
-                close: row.get(6),
-                volume: row.get(7),
+            .map(|row| {
+                let dt: DateTime<Utc> = row.get(2);
+                OhlcvBar {
+                    code: row.get(0),
+                    exchange: row.get(1),
+                    date: dt.naive_utc().date(),
+                    open: row.get(3),
+                    high: row.get(4),
+                    low: row.get(5),
+                    close: row.get(6),
+                    volume: row.get(7),
+                }
             })
             .collect();
 
@@ -108,12 +122,16 @@ impl DataPort for PostgresAdapter {
         }
 
         let row = &rows[0];
-        let min_date: Option<NaiveDate> = row.get(0);
-        let max_date: Option<NaiveDate> = row.get(1);
+        let min_dt: Option<DateTime<Utc>> = row.get(0);
+        let max_dt: Option<DateTime<Utc>> = row.get(1);
         let count: i64 = row.get(2);
 
-        match (min_date, max_date) {
-            (Some(min), Some(max)) if count > 0 => Ok(Some((min, max, count as usize))),
+        match (min_dt, max_dt) {
+            (Some(min), Some(max)) if count > 0 => Ok(Some((
+                min.naive_utc().date(),
+                max.naive_utc().date(),
+                count as usize,
+            ))),
             _ => Ok(None),
         }
     }
