@@ -783,31 +783,16 @@ mod tests {
         let ohlcv = make_ohlcv(vec![make_bar(1, 100.0, 120.0, 80.0, 105.0, 1000)]);
 
         assert!(evaluate(
-            &Rule::Above {
-                left: Operand::Open,
-                right: Operand::Constant(99.0)
-            },
-            &ohlcv,
-            &HashMap::new(),
-            0,
+            &Rule::Above { left: Operand::Open, right: Operand::Constant(99.0) },
+            &ohlcv, &HashMap::new(), 0,
         ));
         assert!(evaluate(
-            &Rule::Above {
-                left: Operand::High,
-                right: Operand::Constant(119.0)
-            },
-            &ohlcv,
-            &HashMap::new(),
-            0,
+            &Rule::Above { left: Operand::High, right: Operand::Constant(119.0) },
+            &ohlcv, &HashMap::new(), 0,
         ));
         assert!(evaluate(
-            &Rule::Below {
-                left: Operand::Low,
-                right: Operand::Constant(81.0)
-            },
-            &ohlcv,
-            &HashMap::new(),
-            0,
+            &Rule::Below { left: Operand::Low, right: Operand::Constant(81.0) },
+            &ohlcv, &HashMap::new(), 0,
         ));
     }
 
