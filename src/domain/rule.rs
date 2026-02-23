@@ -27,15 +27,20 @@ pub struct IndicatorRef {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IndicatorField {
+    /// For single-value indicators (SMA, EMA, WMA, RSI, ROC, ATR, STDDEV, OBV, VWAP)
     Value,
+    /// MACD fields
     MacdLine,
     MacdSignal,
     MacdHistogram,
+    /// Stochastic fields
     StochasticK,
     StochasticD,
+    /// Bollinger Bands fields
     BollingerUpper,
     BollingerMiddle,
     BollingerLower,
+    /// Pivot Point fields
     Pivot,
     R1,
     R2,
