@@ -1,7 +1,6 @@
 //! Performance metrics and statistics (TRD Section 3.7, §10).
 
 use super::portfolio::{EquityPoint, Portfolio};
-use chrono::NaiveDate;
 
 const TRADING_DAYS_PER_YEAR: f64 = 252.0;
 
@@ -12,17 +11,18 @@ pub struct Metrics {
     pub sharpe_ratio: f64,
     pub sortino_ratio: f64,
     pub max_drawdown: f64,
-    pub max_drawdown_duration: i64,
-    pub trades_won: usize,
-    pub trades_lost: usize,
-    pub trades_breakeven: usize,
+    pub max_drawdown_duration: f64,
+    pub total_trades: usize,
+    pub winning_trades: usize,
+    pub losing_trades: usize,
+    pub break_even_trades: usize,
     pub win_rate: f64,
     pub profit_factor: f64,
-    pub avg_win: f64,
-    pub avg_loss: f64,
+    pub average_win: f64,
+    pub average_loss: f64,
     pub largest_win: f64,
     pub largest_loss: f64,
-    pub avg_trade_duration: f64,
+    pub average_trade_duration: f64,
 }
 
 impl Metrics {
@@ -42,10 +42,13 @@ impl Metrics {
             0.0
         };
 
-        let trading_days = equity_curve.len() as f64;
-        let years = trading_days / TRADING_DAYS_PER_YEAR;
-        let annualized_return = if years > 0.0 && total_return.is_finite() {
-            (1.0 + total_return).powf(1.0 / years) - 1.0
+        let trading_days = if equity_curve.len() > 1 {
+            (equity_curve.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let annualized_return = if trading_days > 0.0 && total_return.is_finite() {
+            (1.0 + total_return).powf(TRADING_DAYS_PER_YEAR / trading_days) - 1.0
         } else {
             0.0
         };
@@ -55,9 +58,9 @@ impl Metrics {
         let daily_rf = risk_free_rate / TRADING_DAYS_PER_YEAR;
         let (sharpe_ratio, sortino_ratio) = compute_risk_adjusted(equity_curve, daily_rf);
 
-        let mut trades_won = 0usize;
-        let mut trades_lost = 0usize;
-        let mut trades_breakeven = 0usize;
+        let mut winning_trades = 0usize;
+        let mut losing_trades = 0usize;
+        let mut break_even_trades = 0usize;
         let mut total_wins = 0.0_f64;
         let mut total_losses = 0.0_f64;
         let mut largest_win = 0.0_f64;
@@ -67,28 +70,28 @@ impl Metrics {
         for trade in trades {
             let pnl = trade.pnl;
             if pnl > 0.0 {
-                trades_won += 1;
+                winning_trades += 1;
                 total_wins += pnl;
                 if pnl > largest_win {
                     largest_win = pnl;
                 }
             } else if pnl < 0.0 {
-                trades_lost += 1;
+                losing_trades += 1;
                 total_losses += pnl.abs();
-                if pnl.abs() > largest_loss {
-                    largest_loss = pnl.abs();
+                if pnl < largest_loss {
+                    largest_loss = pnl;
                 }
             } else {
-                trades_breakeven += 1;
+                break_even_trades += 1;
             }
 
             let duration = (trade.exit_date - trade.entry_date).num_days();
             total_duration_days += duration;
         }
 
-        let total_trades = trades_won + trades_lost + trades_breakeven;
+        let total_trades = winning_trades + losing_trades + break_even_trades;
         let win_rate = if total_trades > 0 {
-            trades_won as f64 / total_trades as f64
+            winning_trades as f64 / total_trades as f64
         } else {
             0.0
         };
@@ -101,19 +104,19 @@ impl Metrics {
             0.0
         };
 
-        let avg_win = if trades_won > 0 {
-            total_wins / trades_won as f64
+        let average_win = if winning_trades > 0 {
+            total_wins / winning_trades as f64
         } else {
             0.0
         };
 
-        let avg_loss = if trades_lost > 0 {
-            total_losses / trades_lost as f64
+        let average_loss = if losing_trades > 0 {
+            -(total_losses / losing_trades as f64)
         } else {
             0.0
         };
 
-        let avg_trade_duration = if total_trades > 0 {
+        let average_trade_duration = if total_trades > 0 {
             total_duration_days as f64 / total_trades as f64
         } else {
             0.0
@@ -126,43 +129,39 @@ impl Metrics {
             sortino_ratio,
             max_drawdown,
             max_drawdown_duration,
-            trades_won,
-            trades_lost,
-            trades_breakeven,
+            total_trades,
+            winning_trades,
+            losing_trades,
+            break_even_trades,
             win_rate,
             profit_factor,
-            avg_win,
-            avg_loss,
+            average_win,
+            average_loss,
             largest_win,
             largest_loss,
-            avg_trade_duration,
+            average_trade_duration,
         }
     }
 }
 
-fn compute_drawdown(equity_curve: &[EquityPoint]) -> (f64, i64) {
+fn compute_drawdown(equity_curve: &[EquityPoint]) -> (f64, f64) {
     if equity_curve.is_empty() {
-        return (0.0, 0);
+        return (0.0, 0.0);
     }
 
     let mut peak = equity_curve[0].equity;
     let mut max_dd = 0.0_f64;
-    let mut max_dd_duration = 0i64;
-    let mut dd_start: Option<NaiveDate> = None;
-    let mut current_dd_duration = 0i64;
+    let mut max_dd_duration = 0_i64;
+    let mut current_dd_duration = 0_i64;
 
     for point in equity_curve {
         if point.equity > peak {
             peak = point.equity;
-            dd_start = None;
             current_dd_duration = 0;
         } else if peak > 0.0 {
             let dd = (peak - point.equity) / peak;
             if dd > max_dd {
                 max_dd = dd;
-            }
-            if dd_start.is_none() {
-                dd_start = Some(point.date);
             }
             current_dd_duration += 1;
             if current_dd_duration > max_dd_duration {
@@ -171,7 +170,7 @@ fn compute_drawdown(equity_curve: &[EquityPoint]) -> (f64, i64) {
         }
     }
 
-    (max_dd, max_dd_duration)
+    (max_dd, max_dd_duration as f64)
 }
 
 fn compute_risk_adjusted(equity_curve: &[EquityPoint], daily_rf: f64) -> (f64, f64) {
@@ -236,6 +235,7 @@ fn compute_risk_adjusted(equity_curve: &[EquityPoint], daily_rf: f64) -> (f64, f
 mod tests {
     use super::*;
     use crate::domain::position::ClosedTrade;
+    use chrono::NaiveDate;
 
     fn make_equity_curve(values: &[f64]) -> Vec<EquityPoint> {
         values
@@ -280,9 +280,10 @@ mod tests {
         let portfolio = Portfolio::new(100_000.0);
         let metrics = Metrics::compute(&portfolio, 0.05);
         assert!((metrics.total_return - 0.0).abs() < f64::EPSILON);
-        assert_eq!(metrics.trades_won, 0);
-        assert_eq!(metrics.trades_lost, 0);
-        assert_eq!(metrics.trades_breakeven, 0);
+        assert_eq!(metrics.total_trades, 0);
+        assert_eq!(metrics.winning_trades, 0);
+        assert_eq!(metrics.losing_trades, 0);
+        assert_eq!(metrics.break_even_trades, 0);
     }
 
     #[test]
@@ -300,7 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn metrics_annualized_return() {
+    fn metrics_annualized_return_flat() {
+        // 252 points = 251 trading days = 1 year, flat equity => 0% annualized
         let mut values = vec![100_000.0];
         for _ in 0..251 {
             values.push(100_000.0);
@@ -308,6 +310,20 @@ mod tests {
         let portfolio = make_portfolio(values, vec![]);
         let metrics = Metrics::compute(&portfolio, 0.05);
         assert!((metrics.annualized_return - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn metrics_annualized_return_with_growth() {
+        // 10% return over 252 points (251 trading days = 1 year)
+        // annualized = (1.10)^(252/251) - 1 ≈ 0.10039...
+        let mut values = Vec::new();
+        for i in 0..252 {
+            values.push(100_000.0 + 10_000.0 * (i as f64) / 251.0);
+        }
+        let portfolio = make_portfolio(values, vec![]);
+        let metrics = Metrics::compute(&portfolio, 0.0);
+        let expected = (1.10_f64).powf(252.0 / 251.0) - 1.0;
+        assert!((metrics.annualized_return - expected).abs() < 1e-9);
     }
 
     #[test]
@@ -321,9 +337,10 @@ mod tests {
         let portfolio = make_portfolio(vec![100_000.0, 100_250.0], trades);
         let metrics = Metrics::compute(&portfolio, 0.05);
 
-        assert_eq!(metrics.trades_won, 2);
-        assert_eq!(metrics.trades_lost, 1);
-        assert_eq!(metrics.trades_breakeven, 1);
+        assert_eq!(metrics.total_trades, 4);
+        assert_eq!(metrics.winning_trades, 2);
+        assert_eq!(metrics.losing_trades, 1);
+        assert_eq!(metrics.break_even_trades, 1);
         assert!((metrics.win_rate - 0.5).abs() < f64::EPSILON);
     }
 
@@ -341,7 +358,19 @@ mod tests {
     }
 
     #[test]
-    fn metrics_avg_win_and_loss() {
+    fn metrics_profit_factor_no_losses() {
+        let trades = vec![
+            make_trade("A", 100.0, 5),
+            make_trade("B", 200.0, 3),
+        ];
+        let portfolio = make_portfolio(vec![100_000.0, 100_300.0], trades);
+        let metrics = Metrics::compute(&portfolio, 0.05);
+
+        assert!(metrics.profit_factor.is_infinite());
+    }
+
+    #[test]
+    fn metrics_average_win_and_loss() {
         let trades = vec![
             make_trade("A", 100.0, 5),
             make_trade("B", -60.0, 3),
@@ -351,8 +380,8 @@ mod tests {
         let portfolio = make_portfolio(vec![100_000.0, 100_200.0], trades);
         let metrics = Metrics::compute(&portfolio, 0.05);
 
-        assert!((metrics.avg_win - 150.0).abs() < 1e-9);
-        assert!((metrics.avg_loss - 50.0).abs() < 1e-9);
+        assert!((metrics.average_win - 150.0).abs() < 1e-9);
+        assert!((metrics.average_loss - (-50.0)).abs() < 1e-9);
     }
 
     #[test]
@@ -367,11 +396,11 @@ mod tests {
         let metrics = Metrics::compute(&portfolio, 0.05);
 
         assert!((metrics.largest_win - 300.0).abs() < 1e-9);
-        assert!((metrics.largest_loss - 150.0).abs() < 1e-9);
+        assert!((metrics.largest_loss - (-150.0)).abs() < 1e-9);
     }
 
     #[test]
-    fn metrics_avg_trade_duration() {
+    fn metrics_average_trade_duration() {
         let trades = vec![
             make_trade("A", 100.0, 5),
             make_trade("B", -50.0, 10),
@@ -380,7 +409,7 @@ mod tests {
         let portfolio = make_portfolio(vec![100_000.0, 100_250.0], trades);
         let metrics = Metrics::compute(&portfolio, 0.05);
 
-        assert!((metrics.avg_trade_duration - 10.0).abs() < 1e-9);
+        assert!((metrics.average_trade_duration - 10.0).abs() < 1e-9);
     }
 
     #[test]
@@ -398,7 +427,7 @@ mod tests {
         let curve = make_equity_curve(&equity);
         let (_, duration) = compute_drawdown(&curve);
 
-        assert_eq!(duration, 4);
+        assert!((duration - 4.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -428,15 +457,16 @@ mod tests {
         let portfolio = make_portfolio(vec![100_000.0, 110_000.0], vec![]);
         let metrics = Metrics::compute(&portfolio, 0.05);
 
-        assert_eq!(metrics.trades_won, 0);
-        assert_eq!(metrics.trades_lost, 0);
-        assert_eq!(metrics.trades_breakeven, 0);
+        assert_eq!(metrics.total_trades, 0);
+        assert_eq!(metrics.winning_trades, 0);
+        assert_eq!(metrics.losing_trades, 0);
+        assert_eq!(metrics.break_even_trades, 0);
         assert!((metrics.win_rate - 0.0).abs() < f64::EPSILON);
         assert!((metrics.profit_factor - 0.0).abs() < f64::EPSILON);
-        assert!((metrics.avg_win - 0.0).abs() < f64::EPSILON);
-        assert!((metrics.avg_loss - 0.0).abs() < f64::EPSILON);
+        assert!((metrics.average_win - 0.0).abs() < f64::EPSILON);
+        assert!((metrics.average_loss - 0.0).abs() < f64::EPSILON);
         assert!((metrics.largest_win - 0.0).abs() < f64::EPSILON);
         assert!((metrics.largest_loss - 0.0).abs() < f64::EPSILON);
-        assert!((metrics.avg_trade_duration - 0.0).abs() < f64::EPSILON);
+        assert!((metrics.average_trade_duration - 0.0).abs() < f64::EPSILON);
     }
 }
