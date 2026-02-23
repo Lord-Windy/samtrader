@@ -5,8 +5,8 @@
 //! - Calculation functions for all 13 indicator types from TRD Section 4.1
 
 use crate::domain::indicator::{
-    calculate_bollinger, calculate_ema, IndicatorPoint, IndicatorSeries, IndicatorType,
-    IndicatorValue,
+    calculate_bollinger, calculate_ema, calculate_macd, IndicatorPoint, IndicatorSeries,
+    IndicatorType, IndicatorValue,
 };
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
@@ -27,7 +27,9 @@ pub fn compute_indicator(bars: &[OhlcvBar], indicator_type: &IndicatorType) -> I
         IndicatorType::Stddev(period) => compute_stddev(bars, *period),
         IndicatorType::Obv => compute_obv(bars),
         IndicatorType::Vwap => compute_vwap(bars),
-        IndicatorType::Macd { fast, slow, signal } => compute_macd(bars, *fast, *slow, *signal),
+        IndicatorType::Macd { fast, slow, signal } => {
+            return calculate_macd(bars, *fast, *slow, *signal);
+        }
         IndicatorType::Stochastic { k_period, d_period } => {
             compute_stochastic(bars, *k_period, *d_period)
         }
@@ -324,99 +326,6 @@ fn compute_vwap(bars: &[OhlcvBar]) -> Vec<IndicatorPoint> {
             cum_tp_vol / cum_vol
         };
         result.push(make_point(bar.date, true, IndicatorValue::Simple(vwap)));
-    }
-
-    result
-}
-
-fn compute_macd(
-    bars: &[OhlcvBar],
-    fast: usize,
-    slow: usize,
-    signal_period: usize,
-) -> Vec<IndicatorPoint> {
-    if bars.is_empty() || fast == 0 || slow == 0 || signal_period == 0 {
-        return Vec::new();
-    }
-
-    let ema_fast = compute_ema_values(bars, fast);
-    let ema_slow = compute_ema_values(bars, slow);
-
-    let mut macd_line: Vec<f64> = Vec::with_capacity(bars.len());
-    for i in 0..bars.len() {
-        macd_line.push(ema_fast[i] - ema_slow[i]);
-    }
-
-    let k = 2.0 / (signal_period as f64 + 1.0);
-    let mut signal_line: Vec<f64> = vec![0.0; bars.len()];
-    let warmup = slow - 1;
-
-    if bars.len() > warmup {
-        let mut sum = 0.0;
-        for value in macd_line
-            .iter()
-            .take((warmup + signal_period).min(bars.len()))
-            .skip(warmup)
-        {
-            sum += value;
-        }
-
-        if warmup + signal_period <= bars.len() {
-            let mut signal_ema = sum / signal_period as f64;
-            signal_line[warmup + signal_period - 1] = signal_ema;
-
-            for i in (warmup + signal_period)..bars.len() {
-                signal_ema = macd_line[i] * k + signal_ema * (1.0 - k);
-                signal_line[i] = signal_ema;
-            }
-        }
-    }
-
-    let signal_warmup = slow - 1 + signal_period - 1;
-
-    let mut result = Vec::with_capacity(bars.len());
-    for (i, bar) in bars.iter().enumerate() {
-        let valid = i >= signal_warmup;
-        let macd = macd_line[i];
-        let signal = signal_line[i];
-        let histogram = macd - signal;
-
-        result.push(make_point(
-            bar.date,
-            valid,
-            IndicatorValue::Macd {
-                line: macd,
-                signal,
-                histogram,
-            },
-        ));
-    }
-
-    result
-}
-
-fn compute_ema_values(bars: &[OhlcvBar], period: usize) -> Vec<f64> {
-    if period == 0 || bars.is_empty() {
-        return vec![0.0; bars.len()];
-    }
-
-    let mut result = Vec::with_capacity(bars.len());
-    let k = 2.0 / (period as f64 + 1.0);
-    let mut ema = 0.0;
-    let mut sum = 0.0;
-
-    for (i, bar) in bars.iter().enumerate() {
-        if i < period - 1 {
-            sum += bar.close;
-            result.push(0.0);
-        } else if i == period - 1 {
-            sum += bar.close;
-            ema = sum / period as f64;
-            result.push(ema);
-        } else {
-            ema = bar.close * k + ema * (1.0 - k);
-            result.push(ema);
-        }
     }
 
     result
