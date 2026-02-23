@@ -1,4 +1,4 @@
-//! SVG chart rendering for reports (TRD Section 3.9).
+//! SVG chart rendering for reports (TRD §12.2).
 
 use crate::domain::portfolio::EquityPoint;
 use chrono::NaiveDate;
@@ -88,7 +88,6 @@ pub fn generate_drawdown_svg(equity_curve: &[EquityPoint]) -> String {
     let max_dd = drawdowns.iter().cloned().fold(0.0_f64, f64::max);
 
     let y_max = (max_dd * 1.1).max(0.01);
-    let y_min = 0.0;
 
     let dates: Vec<NaiveDate> = equity_curve.iter().map(|p| p.date).collect();
     let cw = chart_width();
@@ -98,20 +97,21 @@ pub fn generate_drawdown_svg(equity_curve: &[EquityPoint]) -> String {
     svg.push_str(&svg_header("Drawdown"));
     svg.push_str(&chart_frame());
 
-    svg.push_str(&y_axis_labels(y_min * 100.0, y_max * 100.0, 5, ""));
+    svg.push_str(&y_axis_labels_drawdown(y_max, 5));
     svg.push_str(&x_axis_labels(&dates, 6));
 
+    // Drawdown hangs downward from 0% at the top of the chart area
     let points: Vec<(f64, f64)> = drawdowns
         .iter()
         .enumerate()
         .map(|(i, &dd)| {
             let x = MARGIN_LEFT + (i as f64 / (drawdowns.len() - 1).max(1) as f64) * cw;
-            let y = MARGIN_TOP + ch - ((dd - y_min) / (y_max - y_min)) * ch;
+            let y = MARGIN_TOP + (dd / y_max) * ch;
             (x, y)
         })
         .collect();
 
-    let baseline_y = MARGIN_TOP + ch;
+    let baseline_y = MARGIN_TOP;
     svg.push_str(&drawdown_area_path(&points, baseline_y));
 
     svg.push_str(&y_axis_label("Drawdown (%)"));
@@ -170,6 +170,23 @@ fn chart_frame() -> String {
     )
 }
 
+fn format_number(value: f64) -> String {
+    let formatted = format!("{:.0}", value.abs());
+    let bytes: Vec<u8> = formatted.bytes().collect();
+    let mut with_commas = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i) % 3 == 0 {
+            with_commas.push(',');
+        }
+        with_commas.push(b as char);
+    }
+    if value < 0.0 {
+        format!("-{}", with_commas)
+    } else {
+        with_commas
+    }
+}
+
 fn y_axis_labels(min: f64, max: f64, count: usize, prefix: &str) -> String {
     let ch = chart_height();
     let mut result = String::new();
@@ -180,7 +197,7 @@ fn y_axis_labels(min: f64, max: f64, count: usize, prefix: &str) -> String {
 
         result.push_str(&format!(
             r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-dasharray="3,3"/>
-<text x="{}" y="{}" font-family="system-ui, sans-serif" font-size="11" fill="{}" text-anchor="end" dominant-baseline="middle">{:.0}{}</text>
+<text x="{}" y="{}" font-family="system-ui, sans-serif" font-size="11" fill="{}" text-anchor="end" dominant-baseline="middle">{}{}</text>
 "#,
             MARGIN_LEFT,
             y,
@@ -190,8 +207,36 @@ fn y_axis_labels(min: f64, max: f64, count: usize, prefix: &str) -> String {
             MARGIN_LEFT - 8.0,
             y,
             TEXT_COLOR,
-            value,
-            prefix
+            prefix,
+            format_number(value),
+        ));
+    }
+
+    result
+}
+
+fn y_axis_labels_drawdown(max_dd: f64, count: usize) -> String {
+    let ch = chart_height();
+    let mut result = String::new();
+
+    for i in 0..=count {
+        let frac = i as f64 / count as f64;
+        let dd_pct = max_dd * frac * 100.0;
+        let y = MARGIN_TOP + frac * ch;
+
+        result.push_str(&format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-dasharray="3,3"/>
+<text x="{}" y="{}" font-family="system-ui, sans-serif" font-size="11" fill="{}" text-anchor="end" dominant-baseline="middle">-{:.0}%</text>
+"#,
+            MARGIN_LEFT,
+            y,
+            MARGIN_LEFT + chart_width(),
+            y,
+            GRID_COLOR,
+            MARGIN_LEFT - 8.0,
+            y,
+            TEXT_COLOR,
+            dd_pct,
         ));
     }
 
@@ -327,7 +372,7 @@ fn empty_chart(title: &str, message: &str) -> String {
     format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}" width="{}" height="{}">
 <rect width="100%" height="100%" fill="white"/>
-<text x="{}" y="20" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="{}">{}</text>
+<text x="{}" y="20" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="{}" text-anchor="middle">{}</text>
 <text x="{}" y="{}" font-family="system-ui, sans-serif" font-size="14" fill="{}" text-anchor="middle">{}</text>
 </svg>"#,
         SVG_WIDTH,
