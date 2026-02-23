@@ -377,8 +377,12 @@ fn compute_macd(
 
     if bars.len() > warmup {
         let mut sum = 0.0;
-        for i in warmup..(warmup + signal_period).min(bars.len()) {
-            sum += macd_line[i];
+        for value in macd_line
+            .iter()
+            .take((warmup + signal_period).min(bars.len()))
+            .skip(warmup)
+        {
+            sum += value;
         }
 
         if warmup + signal_period <= bars.len() {
