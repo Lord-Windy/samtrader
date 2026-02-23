@@ -1013,7 +1013,10 @@ mod tests {
 
         assert!(exit_result.is_some());
         let exit = exit_result.unwrap();
-        assert!(exit.pnl < 0.0, "Short exit at higher price should be a loss");
+        assert!(
+            exit.pnl < 0.0,
+            "Short exit at higher price should be a loss"
+        );
 
         let trade = &portfolio.closed_trades[0];
         assert!(trade.pnl < 0.0);
@@ -1044,19 +1047,14 @@ mod tests {
         };
 
         // 100 / 10 = 10 shares, cost = 100, commission = 50, total = 150 > 100
-        let result = enter_long(
-            &mut portfolio,
-            "BHP",
-            "ASX",
-            10.0,
-            date(),
-            &params,
-            &config,
-        );
+        let result = enter_long(&mut portfolio, "BHP", "ASX", 10.0, date(), &params, &config);
 
         assert!(matches!(result, EntryResult::InsufficientCapital));
         assert!(!portfolio.has_position("BHP"));
-        assert!((portfolio.cash - 100.0).abs() < f64::EPSILON, "Cash should be unchanged");
+        assert!(
+            (portfolio.cash - 100.0).abs() < f64::EPSILON,
+            "Cash should be unchanged"
+        );
     }
 
     #[test]

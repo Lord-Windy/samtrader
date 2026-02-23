@@ -1,3 +1,6 @@
-fn main() {
-    println!("samtrader: not yet implemented");
+use clap::Parser;
+use samtrader::cli::{run, Cli};
+
+fn main() -> std::process::ExitCode {
+    run(Cli::parse())
 }
