@@ -2,7 +2,7 @@
 
 use chrono::NaiveDate;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Position {
     pub code: String,
     pub exchange: String,
@@ -53,7 +53,7 @@ impl Position {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClosedTrade {
     pub code: String,
     pub exchange: String,
