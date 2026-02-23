@@ -29,9 +29,6 @@ pub enum UniverseError {
 
     #[error("duplicate code: {0}")]
     DuplicateCode(String),
-
-    #[error("all codes failed validation")]
-    AllCodesFailed,
 }
 
 pub fn parse_codes(input: &str) -> Result<Vec<String>, UniverseError> {
@@ -54,6 +51,7 @@ pub fn parse_codes(input: &str) -> Result<Vec<String>, UniverseError> {
     Ok(codes)
 }
 
+#[derive(Debug)]
 pub struct UniverseValidationResult {
     pub universe: Universe,
     pub skipped: Vec<SkippedCode>,
@@ -80,12 +78,14 @@ pub fn validate_universe(
 ) -> Result<UniverseValidationResult, SamtraderError> {
     let mut valid_codes = Vec::new();
     let mut skipped = Vec::new();
+    let mut fetch_errors: usize = 0;
 
     for code in codes {
         let ohlcv = match data_port.fetch_ohlcv(&code, exchange, start_date, end_date) {
             Ok(data) => data,
             Err(e) => {
                 eprintln!("Warning: skipping {}.{} ({})", code, exchange, e);
+                fetch_errors += 1;
                 skipped.push(SkippedCode {
                     code: code.clone(),
                     reason: SkipReason::NoData,
@@ -123,6 +123,16 @@ pub fn validate_universe(
     }
 
     if valid_codes.is_empty() {
+        // TRD §14.4: if all failures were DB fetch errors, exit code 3;
+        // otherwise exit code 5 (insufficient data).
+        if fetch_errors == skipped.len() && fetch_errors > 0 {
+            return Err(SamtraderError::Database {
+                reason: format!(
+                    "failed to fetch data for any code on {}",
+                    exchange
+                ),
+            });
+        }
         return Err(SamtraderError::InsufficientData {
             code: "all".to_string(),
             exchange: exchange.to_string(),
@@ -152,6 +162,10 @@ pub fn validate_universe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ohlcv::OhlcvBar;
+    use std::collections::HashMap;
+
+    // --- parse_codes tests ---
 
     #[test]
     fn test_parse_codes_basic() {
@@ -196,5 +210,186 @@ mod tests {
             exchange: "ASX".to_string(),
         };
         assert_eq!(universe.count(), 2);
+    }
+
+    // --- validate_universe tests ---
+
+    struct MockDataPort {
+        data: HashMap<String, Vec<OhlcvBar>>,
+        errors: HashMap<String, String>,
+    }
+
+    impl MockDataPort {
+        fn new() -> Self {
+            Self {
+                data: HashMap::new(),
+                errors: HashMap::new(),
+            }
+        }
+
+        fn with_bars(mut self, code: &str, count: usize) -> Self {
+            let bars: Vec<OhlcvBar> = (0..count)
+                .map(|i| OhlcvBar {
+                    code: code.to_string(),
+                    exchange: "ASX".to_string(),
+                    date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()
+                        + chrono::Duration::days(i as i64),
+                    open: 100.0,
+                    high: 110.0,
+                    low: 90.0,
+                    close: 105.0,
+                    volume: 1000,
+                })
+                .collect();
+            self.data.insert(code.to_string(), bars);
+            self
+        }
+
+        fn with_error(mut self, code: &str, reason: &str) -> Self {
+            self.errors.insert(code.to_string(), reason.to_string());
+            self
+        }
+    }
+
+    impl DataPort for MockDataPort {
+        fn fetch_ohlcv(
+            &self,
+            code: &str,
+            _exchange: &str,
+            _start_date: NaiveDate,
+            _end_date: NaiveDate,
+        ) -> Result<Vec<OhlcvBar>, SamtraderError> {
+            if let Some(reason) = self.errors.get(code) {
+                return Err(SamtraderError::Database {
+                    reason: reason.clone(),
+                });
+            }
+            Ok(self.data.get(code).cloned().unwrap_or_default())
+        }
+
+        fn list_symbols(&self, _exchange: &str) -> Result<Vec<String>, SamtraderError> {
+            Ok(self.data.keys().cloned().collect())
+        }
+    }
+
+    fn date(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn test_validate_all_codes_valid() {
+        let port = MockDataPort::new()
+            .with_bars("CBA", 50)
+            .with_bars("BHP", 40);
+        let codes = vec!["CBA".to_string(), "BHP".to_string()];
+
+        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["CBA", "BHP"]);
+        assert_eq!(result.universe.exchange, "ASX");
+        assert!(result.skipped.is_empty());
+    }
+
+    #[test]
+    fn test_validate_some_codes_skipped_insufficient_bars() {
+        let port = MockDataPort::new()
+            .with_bars("CBA", 50)
+            .with_bars("XYZ", 10); // below MIN_OHLCV_BARS
+        let codes = vec!["CBA".to_string(), "XYZ".to_string()];
+
+        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["CBA"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].code, "XYZ");
+        assert!(matches!(
+            result.skipped[0].reason,
+            SkipReason::InsufficientBars { bars: 10 }
+        ));
+    }
+
+    #[test]
+    fn test_validate_some_codes_skipped_no_data() {
+        let port = MockDataPort::new().with_bars("CBA", 50);
+        // BHP has no data entry so fetch returns empty vec
+        let codes = vec!["CBA".to_string(), "BHP".to_string()];
+
+        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["CBA"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].code, "BHP");
+        assert!(matches!(result.skipped[0].reason, SkipReason::NoData));
+    }
+
+    #[test]
+    fn test_validate_some_codes_skipped_fetch_error() {
+        let port = MockDataPort::new()
+            .with_bars("CBA", 50)
+            .with_error("BAD", "connection refused");
+        let codes = vec!["CBA".to_string(), "BAD".to_string()];
+
+        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["CBA"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].code, "BAD");
+    }
+
+    #[test]
+    fn test_validate_all_codes_fail_insufficient_data_exit_5() {
+        let port = MockDataPort::new()
+            .with_bars("XYZ", 10)
+            .with_bars("FOO", 5);
+        let codes = vec!["XYZ".to_string(), "FOO".to_string()];
+
+        let err = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap_err();
+
+        assert!(matches!(err, SamtraderError::InsufficientData { .. }));
+        let exit_code: std::process::ExitCode = (&err).into();
+        assert_eq!(exit_code, std::process::ExitCode::from(5));
+    }
+
+    #[test]
+    fn test_validate_all_codes_fail_db_errors_exit_3() {
+        let port = MockDataPort::new()
+            .with_error("CBA", "connection refused")
+            .with_error("BHP", "timeout");
+        let codes = vec!["CBA".to_string(), "BHP".to_string()];
+
+        let err = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap_err();
+
+        assert!(matches!(err, SamtraderError::Database { .. }));
+        let exit_code: std::process::ExitCode = (&err).into();
+        assert_eq!(exit_code, std::process::ExitCode::from(3));
+    }
+
+    #[test]
+    fn test_validate_exact_min_bars_is_valid() {
+        let port = MockDataPort::new().with_bars("CBA", MIN_OHLCV_BARS);
+        let codes = vec!["CBA".to_string()];
+
+        let result = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["CBA"]);
+        assert!(result.skipped.is_empty());
+    }
+
+    #[test]
+    fn test_validate_one_below_min_bars_is_skipped() {
+        let port = MockDataPort::new().with_bars("CBA", MIN_OHLCV_BARS - 1);
+        let codes = vec!["CBA".to_string()];
+
+        let err = validate_universe(&port, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+            .unwrap_err();
+
+        assert!(matches!(err, SamtraderError::InsufficientData { .. }));
     }
 }
