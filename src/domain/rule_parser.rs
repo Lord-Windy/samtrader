@@ -324,19 +324,6 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        if self.consume_exact("MACD(") {
-            let fast = self.parse_integer()?;
-            self.expect_char(',')?;
-            let slow = self.parse_integer()?;
-            self.expect_char(',')?;
-            let signal = self.parse_integer()?;
-            self.expect_char(')')?;
-            return Ok(Operand::Indicator(IndicatorRef {
-                indicator_type: IndicatorType::Macd { fast, slow, signal },
-                field: IndicatorField::MacdLine,
-            }));
-        }
-
         if self.consume_exact("STOCHASTIC_K(") {
             let k_period = self.parse_integer()?;
             self.expect_char(',')?;
@@ -356,17 +343,6 @@ impl<'a> Parser<'a> {
             return Ok(Operand::Indicator(IndicatorRef {
                 indicator_type: IndicatorType::Stochastic { k_period, d_period },
                 field: IndicatorField::StochasticD,
-            }));
-        }
-
-        if self.consume_exact("STOCHASTIC(") {
-            let k_period = self.parse_integer()?;
-            self.expect_char(',')?;
-            let d_period = self.parse_integer()?;
-            self.expect_char(')')?;
-            return Ok(Operand::Indicator(IndicatorRef {
-                indicator_type: IndicatorType::Stochastic { k_period, d_period },
-                field: IndicatorField::StochasticK,
             }));
         }
 
@@ -471,8 +447,9 @@ impl<'a> Parser<'a> {
     fn parse_operand(&mut self) -> Result<Operand, ParseError> {
         self.skip_whitespace();
 
-        if let Some(ch) = self.peek()
-            && (ch.is_ascii_digit() || ch == '-' || ch == '.')
+        if self
+            .peek()
+            .is_some_and(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.')
         {
             let num = self.parse_number()?;
             return Ok(Operand::Constant(num));
@@ -840,11 +817,9 @@ mod tests {
         parse("ABOVE(STDDEV(20), 2)").unwrap();
         parse("ABOVE(OBV, 0)").unwrap();
         parse("ABOVE(VWAP, 100)").unwrap();
-        parse("ABOVE(MACD(12,26,9), 0)").unwrap();
         parse("ABOVE(MACD_LINE(12,26,9), 0)").unwrap();
         parse("ABOVE(MACD_SIGNAL(12,26,9), 0)").unwrap();
         parse("ABOVE(MACD_HISTOGRAM(12,26,9), 0)").unwrap();
-        parse("ABOVE(STOCHASTIC(14,3), 50)").unwrap();
         parse("ABOVE(STOCHASTIC_K(14,3), 50)").unwrap();
         parse("ABOVE(STOCHASTIC_D(14,3), 50)").unwrap();
         parse("ABOVE(BOLLINGER_UPPER(20,2), 100)").unwrap();
@@ -989,5 +964,18 @@ mod tests {
             },
             _ => panic!("expected Above rule"),
         }
+    }
+
+    #[test]
+    fn error_empty_input() {
+        let err = parse("").unwrap_err();
+        assert!(err.message.contains("expected rule"));
+        assert_eq!(err.position, 0);
+    }
+
+    #[test]
+    fn error_whitespace_only() {
+        let err = parse("   ").unwrap_err();
+        assert!(err.message.contains("expected rule"));
     }
 }
