@@ -7,7 +7,9 @@
 //! Default parameters: fast=12, slow=26, signal=9
 //! Warmup: max(fast, slow) - 1 + signal - 1 bars (i.e., slow - 1 + signal - 1 for defaults)
 
-use crate::domain::indicator::{IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue};
+use crate::domain::indicator::{
+    calculate_ema, IndicatorPoint, IndicatorSeries, IndicatorType, IndicatorValue,
+};
 use crate::domain::ohlcv::OhlcvBar;
 
 pub const DEFAULT_FAST: usize = 12;
@@ -31,8 +33,8 @@ pub fn calculate_macd(
         };
     }
 
-    let ema_fast = compute_ema_values(bars, fast);
-    let ema_slow = compute_ema_values(bars, slow);
+    let ema_fast = ema_raw_values(bars, fast);
+    let ema_slow = ema_raw_values(bars, slow);
 
     let mut macd_line: Vec<f64> = Vec::with_capacity(bars.len());
     for i in 0..bars.len() {
@@ -95,31 +97,17 @@ pub fn calculate_macd_default(bars: &[OhlcvBar]) -> IndicatorSeries {
     calculate_macd(bars, DEFAULT_FAST, DEFAULT_SLOW, DEFAULT_SIGNAL)
 }
 
-fn compute_ema_values(bars: &[OhlcvBar], period: usize) -> Vec<f64> {
-    if period == 0 || bars.is_empty() {
-        return vec![0.0; bars.len()];
-    }
-
-    let mut result = Vec::with_capacity(bars.len());
-    let k = 2.0 / (period as f64 + 1.0);
-    let mut ema = 0.0;
-    let mut sum = 0.0;
-
-    for (i, bar) in bars.iter().enumerate() {
-        if i < period - 1 {
-            sum += bar.close;
-            result.push(0.0);
-        } else if i == period - 1 {
-            sum += bar.close;
-            ema = sum / period as f64;
-            result.push(ema);
-        } else {
-            ema = bar.close * k + ema * (1.0 - k);
-            result.push(ema);
-        }
-    }
-
-    result
+/// Extract raw f64 values from the EMA module, using 0.0 for warmup bars.
+fn ema_raw_values(bars: &[OhlcvBar], period: usize) -> Vec<f64> {
+    let series = calculate_ema(bars, period);
+    series
+        .values
+        .iter()
+        .map(|p| match p.value {
+            IndicatorValue::Simple(v) => v,
+            _ => 0.0,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -252,8 +240,8 @@ mod tests {
         let bars = make_bars(&[10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]);
         let series = calculate_macd(&bars, 3, 5, 2);
 
-        let ema_fast = compute_ema_values(&bars, 3);
-        let ema_slow = compute_ema_values(&bars, 5);
+        let ema_fast = ema_raw_values(&bars, 3);
+        let ema_slow = ema_raw_values(&bars, 5);
 
         for (i, point) in series.values.iter().enumerate() {
             if let IndicatorValue::Macd { line, .. } = point.value {
