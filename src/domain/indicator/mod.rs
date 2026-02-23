@@ -7,9 +7,11 @@
 //! - `IndicatorSeries`: A time series of indicator values
 
 mod obv;
+pub mod rsi;
 pub mod stddev;
 
 pub use obv::*;
+pub use rsi::*;
 
 use crate::domain::ohlcv::OhlcvBar;
 use chrono::NaiveDate;
