@@ -165,7 +165,7 @@ pub fn enter_long(
 /// 1. Apply slippage (reduced price for short)
 /// 2. Calculate available capital and quantity
 /// 3. Calculate cost and commission
-/// 4. Add cash from short sale (minus commission)
+/// 4. Deduct cost + commission from portfolio cash (margin escrow)
 /// 5. Stop-loss is above entry, take-profit is below entry
 /// 6. Add position with negative quantity
 pub fn enter_short(
@@ -190,12 +190,15 @@ pub fn enter_short(
         return EntryResult::InsufficientCapital;
     }
 
-    let proceeds = quantity as f64 * execution_price;
-    let commission = calculate_commission(proceeds, config);
+    let cost = quantity as f64 * execution_price;
+    let commission = calculate_commission(cost, config);
+    let total_cost = cost + commission;
 
-    let net_proceeds = proceeds - commission;
+    if total_cost > portfolio.cash {
+        return EntryResult::InsufficientCapital;
+    }
 
-    portfolio.cash += net_proceeds;
+    portfolio.cash -= total_cost;
 
     let stop_loss = if params.stop_loss_pct > 0.0 {
         execution_price * (1.0 + params.stop_loss_pct / 100.0)
@@ -224,7 +227,7 @@ pub fn enter_short(
     EntryResult::Entered {
         quantity: -quantity,
         execution_price,
-        cost: proceeds,
+        cost,
         commission,
     }
 }
@@ -246,7 +249,8 @@ pub struct ExitResult {
 /// 2. Apply slippage based on direction
 /// 3. Calculate exit value and commission
 /// 4. Calculate PnL (including round-trip commissions)
-/// 5. Add exit value (minus commission) to cash
+/// 5. Update cash: long adds sale proceeds; short returns escrowed
+///    entry notional minus buy-to-cover cost
 /// 6. Record closed trade
 /// 7. Remove position from portfolio
 pub fn exit_position(
@@ -265,14 +269,23 @@ pub fn exit_position(
         apply_slippage_short_exit(market_price, config.slippage_pct)
     };
 
-    let exit_value = position.quantity.unsigned_abs() as f64 * exit_price;
+    let qty_abs = position.quantity.unsigned_abs() as f64;
+    let exit_value = qty_abs * exit_price;
     let exit_commission = calculate_commission(exit_value, config);
 
     let price_pnl = position.quantity as f64 * (exit_price - position.entry_price);
     let pnl = price_pnl - entry_commission - exit_commission;
 
-    let net_exit_value = exit_value - exit_commission;
-    portfolio.cash += net_exit_value;
+    if position.is_long() {
+        // Long exit: sell shares, receive proceeds minus commission
+        portfolio.cash += exit_value - exit_commission;
+    } else {
+        // Short exit: return escrowed entry notional plus profit/loss, minus commission.
+        // We escrowed entry_notional on entry; now settle the price difference.
+        let entry_notional = qty_abs * position.entry_price;
+        let short_profit = entry_notional - exit_value;
+        portfolio.cash += entry_notional + short_profit - exit_commission;
+    }
 
     let trade = ClosedTrade {
         code: position.code.clone(),
@@ -533,11 +546,16 @@ mod tests {
             EntryResult::Entered {
                 quantity,
                 execution_price,
-                ..
+                cost,
+                commission,
             } => {
                 assert!(quantity < 0);
                 let expected_price = 100.0 * 0.9995;
                 assert!((execution_price - expected_price).abs() < f64::EPSILON);
+
+                // Cash should be deducted (cost + commission), not increased
+                let expected_cash = 100000.0 - cost - commission;
+                assert!((portfolio.cash - expected_cash).abs() < f64::EPSILON);
 
                 assert!(portfolio.has_position("CBA"));
                 let pos = portfolio.get_position("CBA").unwrap();
@@ -592,9 +610,6 @@ mod tests {
 
         let initial_cash = portfolio.cash;
 
-        let mut entry_commissions = HashMap::new();
-        entry_commissions.insert("BHP".to_string(), entry_commission);
-
         let exit_result = exit_position(
             &mut portfolio,
             "BHP",
@@ -633,12 +648,14 @@ mod tests {
             &params,
             &config,
         );
-        let entry_commission = match entry_result {
-            EntryResult::Entered { commission, .. } => commission,
+        let (entry_commission, entry_cost) = match entry_result {
+            EntryResult::Entered {
+                commission, cost, ..
+            } => (commission, cost),
             _ => panic!("Expected entry"),
         };
 
-        let initial_cash = portfolio.cash;
+        let cash_after_entry = portfolio.cash;
 
         let exit_result = exit_position(
             &mut portfolio,
@@ -660,7 +677,12 @@ mod tests {
 
         let trade = &portfolio.closed_trades[0];
         assert!(trade.pnl > 0.0);
-        assert!(portfolio.cash > initial_cash);
+        // Short exit returns escrowed entry notional + profit - exit_commission
+        let short_profit = entry_cost - exit.exit_value;
+        let expected_cash = cash_after_entry + entry_cost + short_profit - exit.exit_commission;
+        assert!((portfolio.cash - expected_cash).abs() < 1e-6);
+        // Overall should be profitable (more cash than after entry)
+        assert!(portfolio.cash > cash_after_entry);
     }
 
     #[test]
@@ -907,5 +929,255 @@ mod tests {
         let expected_price_pnl = qty as f64 * (110.0 - 100.0);
         let expected_pnl = expected_price_pnl - entry_commission - 10.0;
         assert!((trade.pnl - expected_pnl).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn exit_long_loss() {
+        let mut portfolio = make_portfolio(100000.0);
+        let config = make_config();
+        let params = ExecutionParams {
+            position_size: 0.25,
+            stop_loss_pct: 0.0,
+            take_profit_pct: 0.0,
+        };
+
+        let entry_result = enter_long(
+            &mut portfolio,
+            "BHP",
+            "ASX",
+            100.0,
+            date(),
+            &params,
+            &config,
+        );
+        let entry_commission = match entry_result {
+            EntryResult::Entered { commission, .. } => commission,
+            _ => panic!("Expected entry"),
+        };
+
+        let initial_cash = portfolio.cash;
+
+        let exit_result = exit_position(
+            &mut portfolio,
+            "BHP",
+            90.0, // price dropped
+            date(),
+            entry_commission,
+            &config,
+        );
+
+        assert!(exit_result.is_some());
+        let exit = exit_result.unwrap();
+        assert!(exit.pnl < 0.0, "Long exit at lower price should be a loss");
+        assert!(
+            portfolio.cash < initial_cash + 25000.0,
+            "Should recover less than entry cost"
+        );
+
+        let trade = &portfolio.closed_trades[0];
+        assert!(trade.pnl < 0.0);
+    }
+
+    #[test]
+    fn exit_short_loss() {
+        let mut portfolio = make_portfolio(100000.0);
+        let config = make_config();
+        let params = ExecutionParams {
+            position_size: 0.25,
+            stop_loss_pct: 0.0,
+            take_profit_pct: 0.0,
+        };
+
+        let entry_result = enter_short(
+            &mut portfolio,
+            "CBA",
+            "ASX",
+            100.0,
+            date(),
+            &params,
+            &config,
+        );
+        let entry_commission = match entry_result {
+            EntryResult::Entered { commission, .. } => commission,
+            _ => panic!("Expected entry"),
+        };
+
+        let exit_result = exit_position(
+            &mut portfolio,
+            "CBA",
+            110.0, // price went up — bad for short
+            date(),
+            entry_commission,
+            &config,
+        );
+
+        assert!(exit_result.is_some());
+        let exit = exit_result.unwrap();
+        assert!(exit.pnl < 0.0, "Short exit at higher price should be a loss");
+
+        let trade = &portfolio.closed_trades[0];
+        assert!(trade.pnl < 0.0);
+        // Net cash after full round-trip should be less than initial capital
+        // (we lost money on the trade plus paid commissions)
+        assert!(
+            portfolio.cash < 100000.0,
+            "Should have less than starting capital after a losing short, got {}",
+            portfolio.cash,
+        );
+    }
+
+    #[test]
+    fn enter_long_cost_plus_commission_exceeds_cash() {
+        // Edge case: quantity > 0 but cost + commission > cash
+        // Use high commission rate so the commission tips it over
+        let mut portfolio = make_portfolio(100.0);
+        let config = BacktestConfig {
+            commission_per_trade: 0.0,
+            commission_pct: 50.0, // 50% commission rate
+            slippage_pct: 0.0,
+            allow_shorting: false,
+        };
+        let params = ExecutionParams {
+            position_size: 1.0, // use all capital
+            stop_loss_pct: 0.0,
+            take_profit_pct: 0.0,
+        };
+
+        // 100 / 10 = 10 shares, cost = 100, commission = 50, total = 150 > 100
+        let result = enter_long(
+            &mut portfolio,
+            "BHP",
+            "ASX",
+            10.0,
+            date(),
+            &params,
+            &config,
+        );
+
+        assert!(matches!(result, EntryResult::InsufficientCapital));
+        assert!(!portfolio.has_position("BHP"));
+        assert!((portfolio.cash - 100.0).abs() < f64::EPSILON, "Cash should be unchanged");
+    }
+
+    #[test]
+    fn check_triggers_short_stop_loss() {
+        let mut portfolio = make_portfolio(100000.0);
+        let config = make_config();
+        let params = make_params();
+
+        let entry_result = enter_short(
+            &mut portfolio,
+            "CBA",
+            "ASX",
+            100.0,
+            date(),
+            &params,
+            &config,
+        );
+        let entry_commission = match entry_result {
+            EntryResult::Entered { commission, .. } => commission,
+            _ => panic!("Expected entry"),
+        };
+
+        let pos = portfolio.get_position("CBA").unwrap();
+        let stop_loss_price = pos.stop_loss; // above entry for short
+
+        let mut entry_commissions = HashMap::new();
+        entry_commissions.insert("CBA".to_string(), entry_commission);
+
+        let mut price_map = HashMap::new();
+        price_map.insert("CBA".to_string(), stop_loss_price + 1.0); // above stop loss
+
+        let exited = check_triggers(
+            &mut portfolio,
+            &price_map,
+            date(),
+            &entry_commissions,
+            &config,
+        );
+
+        assert_eq!(exited, 1);
+        assert!(!portfolio.has_position("CBA"));
+        assert_eq!(portfolio.closed_trades.len(), 1);
+        // Short stopped out at a loss
+        assert!(portfolio.closed_trades[0].pnl < 0.0);
+    }
+
+    #[test]
+    fn check_triggers_short_take_profit() {
+        let mut portfolio = make_portfolio(100000.0);
+        let config = make_config();
+        let params = make_params();
+
+        let entry_result = enter_short(
+            &mut portfolio,
+            "CBA",
+            "ASX",
+            100.0,
+            date(),
+            &params,
+            &config,
+        );
+        let entry_commission = match entry_result {
+            EntryResult::Entered { commission, .. } => commission,
+            _ => panic!("Expected entry"),
+        };
+
+        let pos = portfolio.get_position("CBA").unwrap();
+        let take_profit_price = pos.take_profit; // below entry for short
+
+        let mut entry_commissions = HashMap::new();
+        entry_commissions.insert("CBA".to_string(), entry_commission);
+
+        let mut price_map = HashMap::new();
+        price_map.insert("CBA".to_string(), take_profit_price - 1.0); // below take profit
+
+        let exited = check_triggers(
+            &mut portfolio,
+            &price_map,
+            date(),
+            &entry_commissions,
+            &config,
+        );
+
+        assert_eq!(exited, 1);
+        assert!(!portfolio.has_position("CBA"));
+        assert_eq!(portfolio.closed_trades.len(), 1);
+    }
+
+    #[test]
+    fn short_round_trip_cash_conservation() {
+        // Verify that a short entry + exit with no slippage and no commissions
+        // at the same price returns cash to exactly the starting amount
+        let mut portfolio = make_portfolio(100000.0);
+        let config = BacktestConfig {
+            commission_per_trade: 0.0,
+            commission_pct: 0.0,
+            slippage_pct: 0.0,
+            allow_shorting: true,
+        };
+        let params = ExecutionParams {
+            position_size: 0.25,
+            stop_loss_pct: 0.0,
+            take_profit_pct: 0.0,
+        };
+
+        enter_short(
+            &mut portfolio,
+            "CBA",
+            "ASX",
+            100.0,
+            date(),
+            &params,
+            &config,
+        );
+
+        exit_position(&mut portfolio, "CBA", 100.0, date(), 0.0, &config);
+
+        assert!(
+            (portfolio.cash - 100000.0).abs() < f64::EPSILON,
+            "Cash should be exactly restored after flat short round-trip, got {}",
+            portfolio.cash,
+        );
     }
 }
