@@ -63,6 +63,26 @@ impl DataPort for MockDataPort {
     fn list_symbols(&self, _exchange: &str) -> Result<Vec<String>, SamtraderError> {
         Ok(self.data.keys().cloned().collect())
     }
+
+    fn get_data_range(
+        &self,
+        code: &str,
+        _exchange: &str,
+    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+        if let Some(reason) = self.errors.get(code) {
+            return Err(SamtraderError::Database {
+                reason: reason.clone(),
+            });
+        }
+        match self.data.get(code) {
+            Some(bars) if !bars.is_empty() => {
+                let min = bars.iter().map(|b| b.date).min().unwrap();
+                let max = bars.iter().map(|b| b.date).max().unwrap();
+                Ok(Some((min, max, bars.len())))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 fn make_bar(code: &str, date: &str, close: f64) -> OhlcvBar {
