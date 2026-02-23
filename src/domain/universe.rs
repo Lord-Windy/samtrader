@@ -267,6 +267,23 @@ mod tests {
         fn list_symbols(&self, _exchange: &str) -> Result<Vec<String>, SamtraderError> {
             Ok(self.data.keys().cloned().collect())
         }
+
+        fn get_data_range(
+            &self,
+            code: &str,
+            _exchange: &str,
+        ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+            if let Some(bars) = self.data.get(code) {
+                if bars.is_empty() {
+                    return Ok(None);
+                }
+                let min_date = bars.iter().map(|b| b.date).min().unwrap();
+                let max_date = bars.iter().map(|b| b.date).max().unwrap();
+                Ok(Some((min_date, max_date, bars.len())))
+            } else {
+                Ok(None)
+            }
+        }
     }
 
     fn date(y: i32, m: u32, d: u32) -> NaiveDate {

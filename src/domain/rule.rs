@@ -7,6 +7,7 @@
 //! - `Rule`: The rule AST with comparison, composite, and temporal variants
 
 use crate::domain::indicator::IndicatorType;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
@@ -88,6 +89,83 @@ pub enum Rule {
         rule: Box<Rule>,
         count: usize,
     },
+}
+
+impl fmt::Display for IndicatorField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IndicatorField::Value => write!(f, "Value"),
+            IndicatorField::MacdLine => write!(f, "MACD_LINE"),
+            IndicatorField::MacdSignal => write!(f, "MACD_SIGNAL"),
+            IndicatorField::MacdHistogram => write!(f, "MACD_HISTOGRAM"),
+            IndicatorField::StochasticK => write!(f, "STOCHASTIC_K"),
+            IndicatorField::StochasticD => write!(f, "STOCHASTIC_D"),
+            IndicatorField::BollingerUpper => write!(f, "BOLLINGER_UPPER"),
+            IndicatorField::BollingerMiddle => write!(f, "BOLLINGER_MIDDLE"),
+            IndicatorField::BollingerLower => write!(f, "BOLLINGER_LOWER"),
+            IndicatorField::Pivot => write!(f, "PIVOT"),
+            IndicatorField::R1 => write!(f, "PIVOT_R1"),
+            IndicatorField::R2 => write!(f, "PIVOT_R2"),
+            IndicatorField::R3 => write!(f, "PIVOT_R3"),
+            IndicatorField::S1 => write!(f, "PIVOT_S1"),
+            IndicatorField::S2 => write!(f, "PIVOT_S2"),
+            IndicatorField::S3 => write!(f, "PIVOT_S3"),
+        }
+    }
+}
+
+impl fmt::Display for IndicatorRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.field == IndicatorField::Value {
+            write!(f, "{}", self.indicator_type)
+        } else {
+            write!(f, "{}", self.field)
+        }
+    }
+}
+
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operand::Open => write!(f, "open"),
+            Operand::High => write!(f, "high"),
+            Operand::Low => write!(f, "low"),
+            Operand::Close => write!(f, "close"),
+            Operand::Volume => write!(f, "volume"),
+            Operand::Constant(v) => write!(f, "{}", v),
+            Operand::Indicator(ind) => write!(f, "{}", ind),
+        }
+    }
+}
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Rule::CrossAbove { left, right } => write!(f, "CROSS_ABOVE({}, {})", left, right),
+            Rule::CrossBelow { left, right } => write!(f, "CROSS_BELOW({}, {})", left, right),
+            Rule::Above { left, right } => write!(f, "ABOVE({}, {})", left, right),
+            Rule::Below { left, right } => write!(f, "BELOW({}, {})", left, right),
+            Rule::Between {
+                operand,
+                lower,
+                upper,
+            } => {
+                write!(f, "BETWEEN({}, {}, {})", operand, lower, upper)
+            }
+            Rule::Equals { left, right } => write!(f, "EQUALS({}, {})", left, right),
+            Rule::And(rules) => {
+                let inner: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
+                write!(f, "AND({})", inner.join(", "))
+            }
+            Rule::Or(rules) => {
+                let inner: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
+                write!(f, "OR({})", inner.join(", "))
+            }
+            Rule::Not(rule) => write!(f, "NOT({})", rule),
+            Rule::Consecutive { rule, count } => write!(f, "CONSECUTIVE({}, {})", rule, count),
+            Rule::AnyOf { rule, count } => write!(f, "ANY_OF({}, {})", rule, count),
+        }
+    }
 }
 
 #[cfg(test)]

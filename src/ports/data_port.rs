@@ -14,4 +14,10 @@ pub trait DataPort {
     ) -> Result<Vec<OhlcvBar>, SamtraderError>;
 
     fn list_symbols(&self, exchange: &str) -> Result<Vec<String>, SamtraderError>;
+
+    fn get_data_range(
+        &self,
+        code: &str,
+        exchange: &str,
+    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError>;
 }

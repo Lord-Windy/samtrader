@@ -150,6 +150,54 @@ impl DataPort for CsvAdapter {
         symbols.sort();
         Ok(symbols)
     }
+
+    fn get_data_range(
+        &self,
+        code: &str,
+        exchange: &str,
+    ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+        let path = self.csv_path(code, exchange);
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&path).map_err(|e| SamtraderError::Database {
+            reason: format!("failed to read {}: {}", path.display(), e),
+        })?;
+
+        let mut rdr = csv::Reader::from_reader(content.as_bytes());
+        let mut dates = Vec::new();
+
+        for result in rdr.records() {
+            let record = result.map_err(|e| SamtraderError::Database {
+                reason: format!("CSV parse error: {}", e),
+            })?;
+
+            let date_str = record.get(0).ok_or_else(|| SamtraderError::Database {
+                reason: "missing date column".into(),
+            })?;
+
+            let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| {
+                SamtraderError::Database {
+                    reason: format!("invalid date format: {}", e),
+                }
+            })?;
+
+            dates.push(date);
+        }
+
+        if dates.is_empty() {
+            return Ok(None);
+        }
+
+        dates.sort();
+        let min_date = *dates.first().unwrap();
+        let max_date = *dates.last().unwrap();
+        let count = dates.len();
+
+        Ok(Some((min_date, max_date, count)))
+    }
 }
 
 #[cfg(test)]
@@ -234,5 +282,37 @@ mod tests {
 
         let symbols = adapter.list_symbols("NYSE").unwrap();
         assert_eq!(symbols, vec!["AAPL"]);
+    }
+
+    #[test]
+    fn get_data_range_returns_min_max_and_count() {
+        let (_dir, path) = setup_test_data();
+        let adapter = CsvAdapter::new(path);
+
+        let range = adapter.get_data_range("BHP", "ASX").unwrap();
+        assert!(range.is_some());
+        let (min_date, max_date, count) = range.unwrap();
+        assert_eq!(min_date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        assert_eq!(max_date, NaiveDate::from_ymd_opt(2024, 1, 17).unwrap());
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn get_data_range_returns_none_for_missing_file() {
+        let (_dir, path) = setup_test_data();
+        let adapter = CsvAdapter::new(path);
+
+        let range = adapter.get_data_range("XYZ", "ASX").unwrap();
+        assert!(range.is_none());
+    }
+
+    #[test]
+    fn get_data_range_returns_none_for_empty_csv() {
+        let (_dir, path) = setup_test_data();
+        let adapter = CsvAdapter::new(path);
+
+        // CBA_ASX.csv has only a header row, no data
+        let range = adapter.get_data_range("CBA", "ASX").unwrap();
+        assert!(range.is_none());
     }
 }
