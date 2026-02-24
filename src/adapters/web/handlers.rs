@@ -155,6 +155,9 @@ pub async fn run_backtest(
     let drawdown_svg = crate::adapters::typst_report::chart_svg::generate_drawdown_svg(
         &result.portfolio.equity_curve,
     );
+    let monthly_returns = super::templates::render_monthly_returns_html(
+        &result.portfolio.equity_curve,
+    );
 
     let skipped: Vec<super::templates::SkippedCode> = validation.skipped
         .iter()
@@ -178,6 +181,7 @@ pub async fn run_backtest(
         start_date,
         end_date,
         initial_capital,
+        monthly_returns: &monthly_returns,
     };
 
     render_page(&template, "Report - Samtrader", &headers)
