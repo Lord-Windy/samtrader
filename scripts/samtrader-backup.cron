@@ -1,0 +1,13 @@
+# /etc/cron.d/samtrader-backup
+#
+# Daily SQLite backup and rotation for samtrader
+#
+# Backups run at 03:00, rotation at 03:05 as the samtrader user.
+# Environment variables can be set in /etc/samtrader/config.ini
+# or via SAMTRADER_* environment variables.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+0 3 * * * samtrader /usr/local/bin/samtrader-backup.sh
+5 3 * * * samtrader /usr/local/bin/samtrader-rotate-backups.sh
