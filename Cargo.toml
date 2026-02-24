@@ -12,8 +12,9 @@ name = "samtrader"
 path = "src/main.rs"
 
 [features]
-default = ["postgres"]
+default = ["sqlite"]
 postgres = ["dep:postgres"]
+sqlite = ["dep:rusqlite", "dep:r2d2", "dep:r2d2_sqlite"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -22,6 +23,9 @@ configparser = "3"
 csv = "1"
 thiserror = "2"
 postgres = { version = "0.19", optional = true, features = ["with-chrono-0_4"] }
+rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
+r2d2 = { version = "0.8", optional = true }
+r2d2_sqlite = { version = "0.25", optional = true }
 
 [dev-dependencies]
 approx = "0.5"
