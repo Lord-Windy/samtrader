@@ -12,8 +12,10 @@ name = "samtrader"
 path = "src/main.rs"
 
 [features]
-default = ["postgres"]
+default = ["sqlite"]
 postgres = ["dep:postgres"]
+sqlite = ["dep:rusqlite", "dep:r2d2", "dep:r2d2_sqlite"]
+web = ["sqlite", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -21,7 +23,15 @@ clap = { version = "4", features = ["derive"] }
 configparser = "3"
 csv = "1"
 thiserror = "2"
+
 postgres = { version = "0.19", optional = true, features = ["with-chrono-0_4"] }
+rusqlite = { version = "0.31", optional = true, features = ["bundled"] }
+r2d2 = { version = "0.8", optional = true }
+r2d2_sqlite = { version = "0.24", optional = true }
+axum = { version = "0.7", optional = true }
+tokio = { version = "1", optional = true, features = ["full"] }
+askama = { version = "0.12", optional = true }
+askama_axum = { version = "0.4", optional = true }
 
 [dev-dependencies]
 approx = "0.5"
