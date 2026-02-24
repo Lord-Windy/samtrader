@@ -12,9 +12,11 @@
     - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
   notify: Restart SSH
 
-- name: Install UFW
+- name: Install base packages
   apt:
-    name: ufw
+    name:
+      - ufw
+      - sqlite3
     state: present
     update_cache: yes
 

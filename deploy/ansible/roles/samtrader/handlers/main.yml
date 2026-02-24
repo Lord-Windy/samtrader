@@ -1,4 +1,8 @@
 ---
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
 - name: Restart samtrader
   systemd:
     name: samtrader

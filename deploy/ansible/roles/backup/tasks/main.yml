@@ -37,11 +37,40 @@
 
       BACKUP_DIR="${SAMTRADER_BACKUP_DIR:-{{ samtrader_backup_dir }}}"
 
-      RETENTION_DAILY={{ retention_daily | default(7) }}
-      RETENTION_WEEKLY={{ retention_weekly | default(4) }}
-      RETENTION_MONTHLY={{ retention_monthly | default(3) }}
+      RETENTION_DAILY={{ samtrader_backup_retention_daily }}
+      RETENTION_WEEKLY={{ samtrader_backup_retention_weekly }}
+      RETENTION_MONTHLY={{ samtrader_backup_retention_monthly }}
 
-      find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f -mtime +${RETENTION_DAILY} ! -name "$(date +%Y%m%d)*" -delete 2>/dev/null || true
+      # Build a list of backups to keep (weekly = most recent per week, monthly = most recent per month)
+      KEEP_LIST=$(mktemp)
+      trap 'rm -f "${KEEP_LIST}"' EXIT
+
+      # Keep all backups newer than RETENTION_DAILY days
+      find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f -mtime -${RETENTION_DAILY} >> "${KEEP_LIST}"
+
+      # Keep one backup per week for the last RETENTION_WEEKLY weeks
+      for i in $(seq 1 ${RETENTION_WEEKLY}); do
+        days_ago=$(( i * 7 ))
+        days_ago_end=$(( days_ago + 7 ))
+        find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f \
+          -mtime +${days_ago} -mtime -${days_ago_end} | sort -r | head -1 >> "${KEEP_LIST}"
+      done
+
+      # Keep one backup per month for the last RETENTION_MONTHLY months
+      for i in $(seq 1 ${RETENTION_MONTHLY}); do
+        days_ago=$(( i * 30 ))
+        days_ago_end=$(( days_ago + 30 ))
+        find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f \
+          -mtime +${days_ago} -mtime -${days_ago_end} | sort -r | head -1 >> "${KEEP_LIST}"
+      done
+
+      # Delete any backup not in the keep list
+      find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f | while read -r f; do
+        if ! grep -qxF "${f}" "${KEEP_LIST}"; then
+          rm -f "${f}"
+          echo "Removed: ${f}"
+        fi
+      done
 
       echo "Backup rotation completed"
     owner: root
