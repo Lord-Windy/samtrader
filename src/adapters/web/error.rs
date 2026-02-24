@@ -1,8 +1,9 @@
 //! HTTP error responses for web adapter.
 
+use askama::Template;
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
 };
 
 use crate::domain::error::SamtraderError;
@@ -58,6 +59,9 @@ impl IntoResponse for WebError {
             message: &self.message,
             status: self.status.as_u16(),
         };
-        (self.status, template).into_response()
+        match template.render() {
+            Ok(html) => (self.status, Html(html)).into_response(),
+            Err(_) => (self.status, self.message).into_response(),
+        }
     }
 }

@@ -1,3 +1,4 @@
+#![cfg(feature = "web")]
 //! Web handler integration tests per TRD §14.2.
 //!
 //! Tests cover:

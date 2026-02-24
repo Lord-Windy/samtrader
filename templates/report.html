@@ -1,25 +1,20 @@
-{% extends "base.html" %}
-
-{% block title %}Report - Samtrader{% endblock %}
-
-{% block content %}
 <div id="report-content">
     <h1>Backtest Report</h1>
-    
+
     <section>
         <h2>Strategy</h2>
         <p><strong>Name:</strong> {{ strategy.name }}</p>
         <p><strong>Description:</strong> {{ strategy.description }}</p>
-        <p><strong>Position Size:</strong> {{ strategy.position_size * 100.0 }}%</p>
+        <p><strong>Position Size:</strong> {{ "{:.0}"|format(strategy.position_size * 100.0) }}%</p>
         <p><strong>Max Positions:</strong> {{ strategy.max_positions }}</p>
     </section>
-    
+
     <section>
         <h2>Parameters</h2>
         <p><strong>Period:</strong> {{ start_date }} to {{ end_date }}</p>
         <p><strong>Initial Capital:</strong> ${{ "{:.0}"|format(initial_capital) }}</p>
     </section>
-    
+
     <section>
         <h2>Metrics</h2>
         <table>
@@ -33,17 +28,17 @@
             <tr><td>Profit Factor</td><td>{{ "{:.2}"|format(metrics.profit_factor) }}</td></tr>
         </table>
     </section>
-    
+
     <section>
         <h2>Equity Chart</h2>
         <div class="chart">{{ equity_svg|safe }}</div>
     </section>
-    
+
     <section>
         <h2>Drawdown Chart</h2>
         <div class="chart">{{ drawdown_svg|safe }}</div>
     </section>
-    
+
     {% if !trades.is_empty() %}
     <section>
         <h2>Trade Log</h2>
@@ -67,7 +62,7 @@
         </table>
     </section>
     {% endif %}
-    
+
     {% if let Some(results) = code_results %}
         {% if !results.is_empty() %}
         <section>
@@ -90,7 +85,7 @@
         </section>
         {% endif %}
     {% endif %}
-    
+
     {% if !skipped.is_empty() %}
     <section>
         <h2>Skipped Codes</h2>
@@ -102,4 +97,3 @@
     </section>
     {% endif %}
 </div>
-{% endblock %}

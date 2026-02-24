@@ -3,7 +3,7 @@
 use axum::{
     extract::State,
     http::HeaderMap,
-    response::{Html, IntoResponse, Response},
+    response::Response,
     Form,
 };
 use std::sync::Arc;
@@ -16,7 +16,8 @@ use crate::domain::rule::extract_indicators;
 use crate::domain::strategy::Strategy;
 use crate::domain::universe::{validate_universe, SkipReason};
 
-use super::{is_htmx_request, AppState, WebError};
+use super::{AppState, WebError};
+use super::templates::render_page;
 
 pub async fn dashboard(
     State(_state): State<Arc<AppState>>,
@@ -25,12 +26,7 @@ pub async fn dashboard(
     let template = super::templates::DashboardTemplate {
         recent_backtests: &[],
     };
-    
-    if is_htmx_request(&headers) {
-        Ok(Html(template.fragment()).into_response())
-    } else {
-        Ok(template.into_response())
-    }
+    render_page(&template, "Dashboard - Samtrader", &headers)
 }
 
 pub async fn backtest_form(
@@ -43,12 +39,7 @@ pub async fn backtest_form(
         default_start: "2020-01-01",
         default_end: "2024-12-31",
     };
-    
-    if is_htmx_request(&headers) {
-        Ok(Html(template.fragment()).into_response())
-    } else {
-        Ok(template.into_response())
-    }
+    render_page(&template, "New Backtest - Samtrader", &headers)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -72,29 +63,29 @@ pub async fn run_backtest(
         .map_err(|_| WebError::bad_request("Invalid start date format"))?;
     let end_date = chrono::NaiveDate::parse_from_str(&form.end_date, "%Y-%m-%d")
         .map_err(|_| WebError::bad_request("Invalid end date format"))?;
-    
+
     let codes: Vec<String> = form.codes
         .split(',')
         .map(|s| s.trim().to_uppercase())
         .filter(|s| !s.is_empty())
         .collect();
-    
+
     if codes.is_empty() {
         return Err(WebError::bad_request("No codes specified"));
     }
-    
+
     let initial_capital: f64 = form.initial_capital.parse()
         .map_err(|_| WebError::bad_request("Invalid initial capital"))?;
     let position_size: f64 = form.position_size.parse()
         .map_err(|_| WebError::bad_request("Invalid position size"))?;
     let max_positions: usize = form.max_positions.parse()
         .map_err(|_| WebError::bad_request("Invalid max positions"))?;
-    
+
     let entry_long = crate::domain::rule_parser::parse(&form.entry_rule)
         .map_err(|e| WebError::bad_request(format!("Entry rule parse error: {}", e)))?;
     let exit_long = crate::domain::rule_parser::parse(&form.exit_rule)
         .map_err(|e| WebError::bad_request(format!("Exit rule parse error: {}", e)))?;
-    
+
     let strategy = Strategy {
         name: "Web Backtest".to_string(),
         description: "Submitted via web form".to_string(),
@@ -107,7 +98,7 @@ pub async fn run_backtest(
         take_profit_pct: 0.0,
         max_positions,
     };
-    
+
     let bt_config = BacktestConfig {
         start_date,
         end_date,
@@ -118,7 +109,7 @@ pub async fn run_backtest(
         allow_shorting: false,
         risk_free_rate: 0.05,
     };
-    
+
     let validation = validate_universe(
         &*state.data_port,
         codes.clone(),
@@ -126,15 +117,15 @@ pub async fn run_backtest(
         start_date,
         end_date,
     ).map_err(|e| WebError::bad_request(e.to_string()))?;
-    
+
     let valid_codes = &validation.universe.codes;
     let indicator_types = extract_indicators(&strategy.entry_long)
         .into_iter()
         .chain(extract_indicators(&strategy.exit_long))
         .collect::<Vec<_>>();
-    
+
     let mut code_data_vec: Vec<CodeData> = Vec::with_capacity(valid_codes.len());
-    
+
     for code in valid_codes {
         let ohlcv = state.data_port.fetch_ohlcv(
             code,
@@ -142,29 +133,29 @@ pub async fn run_backtest(
             start_date,
             end_date,
         ).map_err(|e| WebError::internal(e.to_string()))?;
-        
+
         let indicators = compute_indicators(&ohlcv, &indicator_types);
         let mut cd = CodeData::new(code.to_string(), "ASX".to_string(), ohlcv);
         cd.indicators = indicators;
         code_data_vec.push(cd);
     }
-    
+
     if code_data_vec.is_empty() {
         return Err(WebError::bad_request("No valid codes with data"));
     }
-    
+
     let timeline = build_unified_timeline(&code_data_vec);
     let result = run_backtest_engine(&code_data_vec, &timeline, &strategy, &bt_config);
     let metrics = Metrics::compute(&result.portfolio, bt_config.risk_free_rate);
     let code_results = CodeResult::compute_per_code(&result.portfolio.closed_trades);
-    
+
     let equity_svg = crate::adapters::typst_report::chart_svg::generate_equity_svg(
         &result.portfolio.equity_curve,
     );
     let drawdown_svg = crate::adapters::typst_report::chart_svg::generate_drawdown_svg(
         &result.portfolio.equity_curve,
     );
-    
+
     let skipped: Vec<super::templates::SkippedCode> = validation.skipped
         .iter()
         .map(|s| super::templates::SkippedCode {
@@ -175,7 +166,7 @@ pub async fn run_backtest(
             },
         })
         .collect();
-    
+
     let template = super::templates::ReportTemplate {
         strategy: &strategy,
         metrics: &metrics,
@@ -188,12 +179,8 @@ pub async fn run_backtest(
         end_date,
         initial_capital,
     };
-    
-    if is_htmx_request(&headers) {
-        Ok(Html(template.fragment()).into_response())
-    } else {
-        Ok(template.into_response())
-    }
+
+    render_page(&template, "Report - Samtrader", &headers)
 }
 
 pub async fn view_report(
@@ -201,10 +188,5 @@ pub async fn view_report(
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
     let template = super::templates::ReportPlaceholderTemplate;
-    
-    if is_htmx_request(&headers) {
-        Ok(Html(template.fragment()).into_response())
-    } else {
-        Ok(template.into_response())
-    }
+    render_page(&template, "Report - Samtrader", &headers)
 }

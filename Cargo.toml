@@ -14,7 +14,7 @@ path = "src/main.rs"
 [features]
 default = ["postgres"]
 postgres = ["dep:postgres"]
-web = ["dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum", "dep:tower", "dep:tower-http"]
+web = ["dep:axum", "dep:tokio", "dep:askama", "dep:tower", "dep:tower-http"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -28,7 +28,6 @@ postgres = { version = "0.19", optional = true, features = ["with-chrono-0_4"] }
 axum = { version = "0.7", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
 askama = { version = "0.12", optional = true }
-askama_axum = { version = "0.4", optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", optional = true, features = ["fs"] }
 
