@@ -44,10 +44,8 @@ impl DataPort for PostgresAdapter {
         end_date: NaiveDate,
     ) -> Result<Vec<OhlcvBar>, SamtraderError> {
         // Convert NaiveDate to DateTime<Utc> for timestamptz columns
-        let start_dt: DateTime<Utc> =
-            start_date.and_time(NaiveTime::MIN).and_utc();
-        let end_dt: DateTime<Utc> =
-            end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start_dt: DateTime<Utc> = start_date.and_time(NaiveTime::MIN).and_utc();
+        let end_dt: DateTime<Utc> = end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
 
         let query = "SELECT code, exchange, date, \
                             open::double precision, high::double precision, \
@@ -58,13 +56,11 @@ impl DataPort for PostgresAdapter {
                      ORDER BY date ASC";
 
         let params: &[&(dyn ToSql + Sync)] = &[&code, &exchange, &start_dt, &end_dt];
-        let rows = self
-            .client
-            .borrow_mut()
-            .query(query, params)
-            .map_err(|e| SamtraderError::DatabaseQuery {
+        let rows = self.client.borrow_mut().query(query, params).map_err(|e| {
+            SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         let bars: Vec<OhlcvBar> = rows
             .into_iter()
