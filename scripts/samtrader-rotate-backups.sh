@@ -56,21 +56,18 @@ for backup in "${all_backups[@]}"; do
     if [ ${weekly_count} -ge ${RETENTION_WEEKLY} ]; then
         break
     fi
-    if [ -n "${keep_files[${backup}]:-}" ]; then
-        continue
-    fi
-    
+
     ts_str=$(echo "${backup}" | sed -E 's/samtrader-([0-9]{8})-[0-9]{6}\.db\.gz/\1/')
     if [[ ! "${ts_str}" =~ ^[0-9]{8}$ ]]; then
         continue
     fi
-    
+
     year="${ts_str:0:4}"
     month="${ts_str:4:2}"
     day="${ts_str:6:2}"
-    
+
     day_of_week=$(date -d "${year}-${month}-${day}" +%w 2>/dev/null || echo "")
-    
+
     if [ "${day_of_week}" = "0" ]; then
         keep_files["${backup}"]=1
         weekly_count=$((weekly_count + 1))
@@ -82,17 +79,14 @@ for backup in "${all_backups[@]}"; do
     if [ ${monthly_count} -ge ${RETENTION_MONTHLY} ]; then
         break
     fi
-    if [ -n "${keep_files[${backup}]:-}" ]; then
-        continue
-    fi
-    
+
     ts_str=$(echo "${backup}" | sed -E 's/samtrader-([0-9]{8})-[0-9]{6}\.db\.gz/\1/')
     if [[ ! "${ts_str}" =~ ^[0-9]{8}$ ]]; then
         continue
     fi
-    
+
     day="${ts_str:6:2}"
-    
+
     if [ "${day}" = "01" ]; then
         keep_files["${backup}"]=1
         monthly_count=$((monthly_count + 1))
