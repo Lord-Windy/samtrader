@@ -1,21 +1,28 @@
 [Unit]
-Description=Samtrader Service
+Description=Samtrader Web Server
 After=network.target
 
 [Service]
 Type=simple
 User=samtrader
+Group=samtrader
+WorkingDirectory=/var/lib/samtrader
 ExecStart=/usr/local/bin/samtrader serve -c /etc/samtrader/config.ini
+Restart=on-failure
+RestartSec=5
 
+# Sandboxing
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-PrivateTmp=yes
-MemoryDenyWriteExecute=yes
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=yes
-
 ReadWritePaths=/var/lib/samtrader /var/backups/samtrader
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
 
 [Install]
 WantedBy=multi-user.target
