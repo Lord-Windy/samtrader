@@ -52,6 +52,12 @@ pub struct DashboardTemplate<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "login.html")]
+pub struct LoginTemplate<'a> {
+    pub error: Option<&'a str>,
+}
+
+#[derive(Template)]
 #[template(path = "backtest_form.html")]
 pub struct BacktestFormTemplate<'a> {
     pub symbols: &'a [String],

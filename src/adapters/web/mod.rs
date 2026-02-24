@@ -29,9 +29,13 @@ pub struct AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(handlers::dashboard))
+        .route("/login", get(handlers::login_form).post(handlers::login))
+        .route("/logout", post(handlers::logout))
         .route("/backtest", get(handlers::backtest_form))
         .route("/backtest/run", post(handlers::run_backtest))
-        .route("/report", get(handlers::view_report))
+        .route("/report/{id}", get(handlers::view_report))
+        .route("/report/{id}/equity-chart", get(handlers::equity_chart_svg))
+        .route("/report/{id}/drawdown-chart", get(handlers::drawdown_chart_svg))
         .fallback_service(ServeDir::new("static"))
         .with_state(Arc::new(state))
 }
