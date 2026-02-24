@@ -1,0 +1,21 @@
+[Unit]
+Description=Samtrader Service
+After=network.target
+
+[Service]
+Type=simple
+User=samtrader
+ExecStart=/usr/local/bin/samtrader serve -c /etc/samtrader/config.ini
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+
+ReadWritePaths=/var/lib/samtrader /var/backups/samtrader
+
+[Install]
+WantedBy=multi-user.target
