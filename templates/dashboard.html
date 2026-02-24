@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Samtrader{% endblock %}
+
+{% block content %}
+<div id="content">
+    <h1>Dashboard</h1>
+    <p>Welcome to Samtrader - systematic trading strategy backtester.</p>
+    
+    <h2>Recent Backtests</h2>
+    {% if recent_backtests.is_empty() %}
+    <p>No recent backtests. <a href="/backtest">Run your first backtest</a>.</p>
+    {% else %}
+    <ul>
+        {% for bt in recent_backtests %}
+        <li>{{ bt }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endblock %}
