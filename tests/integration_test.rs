@@ -7,7 +7,7 @@
 //! - Partial universe validation (some codes skipped, others proceed)
 //! - Backward compatibility: single `code` config produces identical results
 //! - Full backtest pipeline via SqliteAdapter with seeded in-memory database (TRD §14.2)
-//! - Cross-adapter parity: SqliteAdapter and PostgresAdapter return identical results
+//! - Parity: SqliteAdapter and MockDataPort return identical results for same data
 
 mod common;
 
@@ -1032,75 +1032,10 @@ mod sqlite_adapter_tests {
     }
 }
 
-#[cfg(all(feature = "sqlite", feature = "postgres"))]
-mod cross_adapter_parity_tests {
+#[cfg(feature = "sqlite")]
+mod sqlite_parity_tests {
     use super::*;
-    use samtrader::adapters::postgres_adapter::PostgresAdapter;
     use samtrader::adapters::sqlite_adapter::SqliteAdapter;
-    use samtrader::ports::config_port::ConfigPort;
-
-    struct SqliteTestConfig {
-        path: String,
-    }
-
-    impl SqliteTestConfig {
-        fn new(path: &str) -> Self {
-            Self {
-                path: path.to_string(),
-            }
-        }
-    }
-
-    impl ConfigPort for SqliteTestConfig {
-        fn get_string(&self, section: &str, key: &str) -> Option<String> {
-            if section == "sqlite" && key == "path" {
-                return Some(self.path.clone());
-            }
-            None
-        }
-        fn get_int(&self, _section: &str, _key: &str, default: i64) -> i64 {
-            default
-        }
-        fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
-            default
-        }
-        fn get_bool(&self, _section: &str, _key: &str, default: bool) -> bool {
-            default
-        }
-    }
-
-    struct PostgresTestConfig {
-        conninfo: String,
-    }
-
-    impl PostgresTestConfig {
-        fn new(conninfo: &str) -> Self {
-            Self {
-                conninfo: conninfo.to_string(),
-            }
-        }
-    }
-
-    impl ConfigPort for PostgresTestConfig {
-        fn get_string(&self, section: &str, key: &str) -> Option<String> {
-            if section == "postgres" && key == "connection_string" {
-                return Some(self.conninfo.clone());
-            }
-            if section == "database" && key == "conninfo" {
-                return Some(self.conninfo.clone());
-            }
-            None
-        }
-        fn get_int(&self, _section: &str, _key: &str, default: i64) -> i64 {
-            default
-        }
-        fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
-            default
-        }
-        fn get_bool(&self, _section: &str, _key: &str, default: bool) -> bool {
-            default
-        }
-    }
 
     #[test]
     fn cross_adapter_parity_backtest_results() {
