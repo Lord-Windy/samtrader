@@ -332,6 +332,59 @@ mod tests {
     }
 
     #[test]
+    fn html_report_adapter_write_multi_includes_per_code_results() {
+        let dir = tempdir().unwrap();
+        let output_path = dir.path().join("report.html");
+        let output_str = output_path.to_str().unwrap();
+
+        let adapter = HtmlReportAdapter::new();
+        let strategy = sample_strategy();
+
+        let mut portfolio = Portfolio::new(100_000.0);
+        portfolio.equity_curve.push(EquityPoint {
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            equity: 100_000.0,
+        });
+        portfolio.equity_curve.push(EquityPoint {
+            date: NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
+            equity: 103_000.0,
+        });
+        portfolio.closed_trades.push(ClosedTrade {
+            code: "BHP".into(),
+            exchange: "ASX".into(),
+            quantity: 100,
+            entry_price: 50.0,
+            exit_price: 55.0,
+            entry_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            exit_date: NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+            pnl: 500.0,
+        });
+        portfolio.closed_trades.push(ClosedTrade {
+            code: "CBA".into(),
+            exchange: "ASX".into(),
+            quantity: 50,
+            entry_price: 80.0,
+            exit_price: 85.0,
+            entry_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            exit_date: NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
+            pnl: 250.0,
+        });
+
+        let multi = MultiCodeResult {
+            aggregate: BacktestResult { portfolio },
+            code_results: Vec::new(),
+        };
+
+        adapter.write_multi(&multi, &strategy, output_str).unwrap();
+
+        let contents = fs::read_to_string(&output_path).unwrap();
+        assert!(contents.contains("Per-Code Results"));
+        assert!(contents.contains("BHP"));
+        assert!(contents.contains("CBA"));
+        assert!(contents.contains("<svg"));
+    }
+
+    #[test]
     fn html_report_adapter_creates_parent_directories() {
         let dir = tempdir().unwrap();
         let output_path = dir.path().join("nested/deep/path/report.html");
