@@ -1,0 +1,19 @@
+[database]
+path = {{ samtrader_db_path }}
+
+[server]
+host = 127.0.0.1
+port = {{ samtrader_web_port }}
+
+[auth]
+username = {{ samtrader_auth_username }}
+# password: set via ansible-vault variable samtrader_auth_password
+{% if samtrader_auth_password is defined %}
+password = {{ samtrader_auth_password }}
+{% endif %}
+
+[backup]
+destination = {{ samtrader_backup_dir }}
+retention_daily = 7
+retention_weekly = 4
+retention_monthly = 3

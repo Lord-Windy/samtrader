@@ -1,0 +1,5 @@
+---
+samtrader_web_port: 3000
+samtrader_db_path: /var/lib/samtrader/samtrader.db
+samtrader_backup_dir: /var/backups/samtrader
+samtrader_auth_username: admin

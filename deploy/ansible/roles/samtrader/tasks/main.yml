@@ -1,0 +1,86 @@
+---
+- name: Create samtrader system user
+  user:
+    name: samtrader
+    system: yes
+    shell: /usr/sbin/nologin
+    home: /var/lib/samtrader
+    create_home: no
+
+- name: Create samtrader directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: samtrader
+    group: samtrader
+    mode: '0750'
+  loop:
+    - /var/lib/samtrader
+    - /etc/samtrader
+
+- name: Copy samtrader binary
+  copy:
+    src: samtrader
+    dest: /usr/local/bin/samtrader
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy samtrader config
+  template:
+    src: config.ini.j2
+    dest: /etc/samtrader/config.ini
+    owner: samtrader
+    group: samtrader
+    mode: '0640'
+  notify: Restart samtrader
+
+- name: Deploy systemd unit file
+  copy:
+    dest: /etc/systemd/system/samtrader.service
+    content: |
+      [Unit]
+      Description=Samtrader Web Server
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=samtrader
+      Group=samtrader
+      WorkingDirectory=/var/lib/samtrader
+      ExecStart=/usr/local/bin/samtrader serve -c /etc/samtrader/config.ini
+      Restart=on-failure
+      RestartSec=5
+
+      NoNewPrivileges=yes
+      ProtectSystem=strict
+      ProtectHome=yes
+      ReadWritePaths=/var/lib/samtrader /var/backups/samtrader
+      PrivateTmp=yes
+      ProtectKernelTunables=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+      RestrictNamespaces=yes
+      MemoryDenyWriteExecute=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart samtrader
+
+- name: Run database migration
+  command: /usr/local/bin/samtrader migrate --sqlite {{ samtrader_db_path }}
+  args:
+    creates: "{{ samtrader_db_path }}"
+  become_user: samtrader
+
+- name: Enable and start samtrader service
+  systemd:
+    name: samtrader
+    state: started
+    enabled: yes
