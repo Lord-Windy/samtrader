@@ -38,9 +38,9 @@
             <tr><td>Win Rate</td><td>{{ "{:.1}"|format(metrics.win_rate * 100.0) }}%</td></tr>
             <tr><td>Profit Factor</td><td>{% if metrics.profit_factor.is_infinite() %}&infin;{% else %}{{ "{:.2}"|format(metrics.profit_factor) }}{% endif %}</td></tr>
             <tr><td>Average Win</td><td class="positive">${{ "{:.2}"|format(metrics.average_win) }}</td></tr>
-            <tr><td>Average Loss</td><td class="negative">${{ "{:.2}"|format(metrics.average_loss.abs()) }}</td></tr>
+            <tr><td>Average Loss</td><td class="negative">-${{ "{:.2}"|format(metrics.average_loss.abs()) }}</td></tr>
             <tr><td>Largest Win</td><td class="positive">${{ "{:.2}"|format(metrics.largest_win) }}</td></tr>
-            <tr><td>Largest Loss</td><td class="negative">${{ "{:.2}"|format(metrics.largest_loss.abs()) }}</td></tr>
+            <tr><td>Largest Loss</td><td class="negative">-${{ "{:.2}"|format(metrics.largest_loss.abs()) }}</td></tr>
             <tr><td>Avg Trade Duration</td><td>{{ "{:.1}"|format(metrics.average_trade_duration) }} days</td></tr>
         </table>
     </section>
@@ -71,31 +71,31 @@
                         <td>{{ "{:.1}"|format(cr.win_rate * 100.0) }}%</td>
                         <td class="{% if cr.total_pnl > 0.0 %}positive{% else if cr.total_pnl < 0.0 %}negative{% else %}neutral{% endif %}">${{ "{:.0}"|format(cr.total_pnl) }}</td>
                         <td class="positive">${{ "{:.0}"|format(cr.largest_win) }}</td>
-                        <td class="negative">${{ "{:.0}"|format(cr.largest_loss.abs()) }}</td>
+                        <td class="negative">-${{ "{:.0}"|format(cr.largest_loss.abs()) }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </section>
-        {% endif %}
-    {% endif %}
 
-    {% if let Some(results) = code_results %}
         {% for cr in results %}
         <section>
             <details>
                 <summary>Per-Code Details: {{ cr.code }}</summary>
                 <table>
-                    <tr><th>Property</th><th>Value</th></tr>
+                    <tr><th>Metric</th><th>Value</th></tr>
                     <tr><td>Total Trades</td><td>{{ cr.total_trades }}</td></tr>
+                    <tr><td>Winning Trades</td><td>{{ cr.winning_trades }}</td></tr>
+                    <tr><td>Losing Trades</td><td>{{ cr.losing_trades }}</td></tr>
                     <tr><td>Win Rate</td><td>{{ "{:.1}"|format(cr.win_rate * 100.0) }}%</td></tr>
                     <tr><td>Total PnL</td><td class="{% if cr.total_pnl > 0.0 %}positive{% else if cr.total_pnl < 0.0 %}negative{% else %}neutral{% endif %}">${{ "{:.0}"|format(cr.total_pnl) }}</td></tr>
                     <tr><td>Largest Win</td><td class="positive">${{ "{:.0}"|format(cr.largest_win) }}</td></tr>
-                    <tr><td>Largest Loss</td><td class="negative">${{ "{:.0}"|format(cr.largest_loss.abs()) }}</td></tr>
+                    <tr><td>Largest Loss</td><td class="negative">-${{ "{:.0}"|format(cr.largest_loss.abs()) }}</td></tr>
                 </table>
             </details>
         </section>
         {% endfor %}
+        {% endif %}
     {% endif %}
 
     {% if !trades.is_empty() %}
@@ -126,7 +126,25 @@
     {% if !monthly_returns.is_empty() %}
     <section>
         <h2>Monthly Returns</h2>
-        {{ monthly_returns|safe }}
+        <table class="monthly-returns">
+            <thead>
+                <tr><th>Year</th><th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th></tr>
+            </thead>
+            <tbody>
+                {% for row in monthly_returns %}
+                <tr>
+                    <td><strong>{{ row.year }}</strong></td>
+                    {% for cell in row.months %}
+                        {% if let Some(pct) = cell %}
+                            <td class="{% if *pct > 0.0 %}positive{% else if *pct < 0.0 %}negative{% else %}neutral{% endif %}">{{ "{:.1}"|format(pct) }}%</td>
+                        {% else %}
+                            <td class="neutral">-</td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </section>
     {% endif %}
 

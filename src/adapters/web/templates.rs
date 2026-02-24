@@ -75,7 +75,7 @@ pub struct ReportTemplate<'a> {
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
     pub initial_capital: f64,
-    pub monthly_returns: &'a str,
+    pub monthly_returns: &'a [MonthlyReturnRow],
 }
 
 pub struct SkippedCode<'a> {
@@ -94,9 +94,14 @@ pub struct ErrorTemplate<'a> {
 #[template(path = "report_placeholder.html")]
 pub struct ReportPlaceholderTemplate;
 
-pub fn render_monthly_returns_html(equity_curve: &[EquityPoint]) -> String {
+pub struct MonthlyReturnRow {
+    pub year: i32,
+    pub months: Vec<Option<f64>>,
+}
+
+pub fn compute_monthly_returns(equity_curve: &[EquityPoint]) -> Vec<MonthlyReturnRow> {
     if equity_curve.len() < 2 {
-        return String::new();
+        return Vec::new();
     }
 
     let mut monthly_data: BTreeMap<(i32, u32), Vec<f64>> = BTreeMap::new();
@@ -116,42 +121,95 @@ pub fn render_monthly_returns_html(equity_curve: &[EquityPoint]) -> String {
     let mut returns: BTreeMap<(i32, u32), f64> = BTreeMap::new();
     for (&key, daily) in &monthly_data {
         let compounded = daily.iter().map(|r| (1.0 + r).ln()).sum::<f64>().exp() - 1.0;
-        returns.insert(key, compounded);
+        returns.insert(key, compounded * 100.0);
     }
 
     let min_year = returns.keys().map(|k| k.0).min().unwrap_or(2020);
     let max_year = returns.keys().map(|k| k.0).max().unwrap_or(2020);
 
-    let mut out = String::from(
-        r#"<table class="monthly-returns">
-<thead>
-<tr><th>Year</th><th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th></tr>
-</thead>
-<tbody>
-"#,
-    );
+    (min_year..=max_year)
+        .map(|year| MonthlyReturnRow {
+            year,
+            months: (1..=12u32)
+                .map(|month| returns.get(&(year, month)).copied())
+                .collect(),
+        })
+        .collect()
+}
 
-    for year in min_year..=max_year {
-        out.push_str("<tr>");
-        out.push_str(&format!("<td><strong>{}</strong></td>", year));
-        for month in 1..=12u32 {
-            if let Some(&ret) = returns.get(&(year, month)) {
-                let pct = ret * 100.0;
-                let class = if pct > 0.0 {
-                    "positive"
-                } else if pct < 0.0 {
-                    "negative"
-                } else {
-                    "neutral"
-                };
-                out.push_str(&format!(r#"<td class="{}">{:.1}%</td>"#, class, pct));
-            } else {
-                out.push_str(r#"<td class="neutral">-</td>"#);
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn equity(date: &str, equity: f64) -> EquityPoint {
+        EquityPoint {
+            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            equity,
         }
-        out.push_str("</tr>\n");
     }
 
-    out.push_str("</tbody>\n</table>");
-    out
+    #[test]
+    fn empty_curve_returns_empty() {
+        assert!(compute_monthly_returns(&[]).is_empty());
+        assert!(compute_monthly_returns(&[equity("2024-01-01", 100.0)]).is_empty());
+    }
+
+    #[test]
+    fn single_month_positive_return() {
+        let curve = vec![
+            equity("2024-01-01", 100.0),
+            equity("2024-01-02", 110.0),
+        ];
+        let rows = compute_monthly_returns(&curve);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].year, 2024);
+        let jan = rows[0].months[0].unwrap();
+        assert!((jan - 10.0).abs() < 0.1, "expected ~10%, got {jan}");
+        // Feb-Dec should be None
+        for m in &rows[0].months[1..] {
+            assert!(m.is_none());
+        }
+    }
+
+    #[test]
+    fn multi_day_compounding_within_month() {
+        // Two consecutive 10% gains: 1.1 * 1.1 = 1.21 => 21% return
+        let curve = vec![
+            equity("2024-03-01", 100.0),
+            equity("2024-03-15", 110.0),
+            equity("2024-03-31", 121.0),
+        ];
+        let rows = compute_monthly_returns(&curve);
+        assert_eq!(rows.len(), 1);
+        let mar = rows[0].months[2].unwrap();
+        assert!((mar - 21.0).abs() < 0.1, "expected ~21%, got {mar}");
+    }
+
+    #[test]
+    fn spans_multiple_years() {
+        let curve = vec![
+            equity("2023-12-01", 100.0),
+            equity("2023-12-31", 105.0),
+            equity("2024-01-31", 110.0),
+        ];
+        let rows = compute_monthly_returns(&curve);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].year, 2023);
+        assert_eq!(rows[1].year, 2024);
+        assert!(rows[0].months[11].is_some()); // December 2023
+        assert!(rows[1].months[0].is_some()); // January 2024
+    }
+
+    #[test]
+    fn negative_return() {
+        let curve = vec![
+            equity("2024-06-01", 100.0),
+            equity("2024-06-30", 90.0),
+        ];
+        let rows = compute_monthly_returns(&curve);
+        let jun = rows[0].months[5].unwrap();
+        assert!(jun < 0.0, "expected negative return, got {jun}");
+        assert!((jun - (-10.0)).abs() < 0.1);
+    }
 }
