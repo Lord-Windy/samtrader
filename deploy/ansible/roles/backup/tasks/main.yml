@@ -1,0 +1,60 @@
+---
+- name: Create backup directory
+  file:
+    path: "{{ samtrader_backup_dir }}"
+    state: directory
+    owner: samtrader
+    group: samtrader
+    mode: '0750'
+
+- name: Deploy backup script
+  copy:
+    dest: /usr/local/bin/samtrader-backup.sh
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      DB_PATH="${SAMTRADER_DB:-{{ samtrader_db_path }}}"
+      BACKUP_DIR="${SAMTRADER_BACKUP_DIR:-{{ samtrader_backup_dir }}}"
+      TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+      BACKUP_FILE="${BACKUP_DIR}/samtrader-${TIMESTAMP}.db"
+
+      mkdir -p "${BACKUP_DIR}"
+      sqlite3 "${DB_PATH}" ".backup '${BACKUP_FILE}'"
+      gzip "${BACKUP_FILE}"
+
+      echo "Backup created: ${BACKUP_FILE}.gz"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy backup rotation script
+  copy:
+    dest: /usr/local/bin/samtrader-rotate-backups.sh
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      BACKUP_DIR="${SAMTRADER_BACKUP_DIR:-{{ samtrader_backup_dir }}}"
+
+      RETENTION_DAILY={{ retention_daily | default(7) }}
+      RETENTION_WEEKLY={{ retention_weekly | default(4) }}
+      RETENTION_MONTHLY={{ retention_monthly | default(3) }}
+
+      find "${BACKUP_DIR}" -name "samtrader-*.db.gz" -type f -mtime +${RETENTION_DAILY} ! -name "$(date +%Y%m%d)*" -delete 2>/dev/null || true
+
+      echo "Backup rotation completed"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy cron configuration for backups
+  copy:
+    dest: /etc/cron.d/samtrader-backup
+    content: |
+      # /etc/cron.d/samtrader-backup
+      0 3 * * * samtrader /usr/local/bin/samtrader-backup.sh
+      5 3 * * * samtrader /usr/local/bin/samtrader-rotate-backups.sh
+    owner: root
+    group: root
+    mode: '0644'

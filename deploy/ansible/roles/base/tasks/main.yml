@@ -1,0 +1,71 @@
+---
+- name: Configure SSH hardening
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    validate: sshd -t -f %s
+  loop:
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+  notify: Restart SSH
+
+- name: Install UFW
+  apt:
+    name: ufw
+    state: present
+    update_cache: yes
+
+- name: Allow SSH through UFW
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTP through UFW
+  ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+
+- name: Allow HTTPS through UFW
+  ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Enable UFW with default deny
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+- name: Install fail2ban
+  apt:
+    name: fail2ban
+    state: present
+
+- name: Enable and start fail2ban
+  systemd:
+    name: fail2ban
+    state: started
+    enabled: yes
+
+- name: Install unattended-upgrades
+  apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+
+- name: Enable unattended-upgrades
+  copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: '0644'

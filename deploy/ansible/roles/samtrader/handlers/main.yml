@@ -1,0 +1,5 @@
+---
+- name: Restart samtrader
+  systemd:
+    name: samtrader
+    state: restarted
