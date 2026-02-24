@@ -1,0 +1,49 @@
+<div id="content">
+    <h1>New Backtest</h1>
+
+    <form hx-post="/backtest/run" hx-target=".report-container" hx-swap="innerHTML">
+        <label>
+            Codes (comma-separated):
+            <input type="text" name="codes" placeholder="BHP,CBA,RIO">
+        </label>
+
+        <label>
+            Start Date:
+            <input type="date" name="start_date" value="{{ default_start }}">
+        </label>
+
+        <label>
+            End Date:
+            <input type="date" name="end_date" value="{{ default_end }}">
+        </label>
+
+        <label>
+            Initial Capital:
+            <input type="text" name="initial_capital" value="100000">
+        </label>
+
+        <label>
+            Entry Rule:
+            <input type="text" name="entry_rule" placeholder="close &gt; sma(20)">
+        </label>
+
+        <label>
+            Exit Rule:
+            <input type="text" name="exit_rule" placeholder="close &lt; sma(20)">
+        </label>
+
+        <label>
+            Position Size (0-1):
+            <input type="text" name="position_size" value="0.25">
+        </label>
+
+        <label>
+            Max Positions:
+            <input type="text" name="max_positions" value="1">
+        </label>
+
+        <button type="submit">Run Backtest</button>
+    </form>
+
+    <div class="report-container"></div>
+</div>

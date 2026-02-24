@@ -1,0 +1,99 @@
+<div id="report-content">
+    <h1>Backtest Report</h1>
+
+    <section>
+        <h2>Strategy</h2>
+        <p><strong>Name:</strong> {{ strategy.name }}</p>
+        <p><strong>Description:</strong> {{ strategy.description }}</p>
+        <p><strong>Position Size:</strong> {{ "{:.0}"|format(strategy.position_size * 100.0) }}%</p>
+        <p><strong>Max Positions:</strong> {{ strategy.max_positions }}</p>
+    </section>
+
+    <section>
+        <h2>Parameters</h2>
+        <p><strong>Period:</strong> {{ start_date }} to {{ end_date }}</p>
+        <p><strong>Initial Capital:</strong> ${{ "{:.0}"|format(initial_capital) }}</p>
+    </section>
+
+    <section>
+        <h2>Metrics</h2>
+        <table>
+            <tr><td>Total Return</td><td>{{ "{:.2}"|format(metrics.total_return * 100.0) }}%</td></tr>
+            <tr><td>Annualized Return</td><td>{{ "{:.2}"|format(metrics.annualized_return * 100.0) }}%</td></tr>
+            <tr><td>Sharpe Ratio</td><td>{{ "{:.2}"|format(metrics.sharpe_ratio) }}</td></tr>
+            <tr><td>Sortino Ratio</td><td>{{ "{:.2}"|format(metrics.sortino_ratio) }}</td></tr>
+            <tr><td>Max Drawdown</td><td>-{{ "{:.1}"|format(metrics.max_drawdown * 100.0) }}%</td></tr>
+            <tr><td>Total Trades</td><td>{{ metrics.total_trades }}</td></tr>
+            <tr><td>Win Rate</td><td>{{ "{:.1}"|format(metrics.win_rate * 100.0) }}%</td></tr>
+            <tr><td>Profit Factor</td><td>{{ "{:.2}"|format(metrics.profit_factor) }}</td></tr>
+        </table>
+    </section>
+
+    <section>
+        <h2>Equity Chart</h2>
+        <div class="chart">{{ equity_svg|safe }}</div>
+    </section>
+
+    <section>
+        <h2>Drawdown Chart</h2>
+        <div class="chart">{{ drawdown_svg|safe }}</div>
+    </section>
+
+    {% if !trades.is_empty() %}
+    <section>
+        <h2>Trade Log</h2>
+        <table>
+            <thead>
+                <tr><th>Code</th><th>Entry Date</th><th>Exit Date</th><th>Quantity</th><th>Entry Price</th><th>Exit Price</th><th>PnL</th></tr>
+            </thead>
+            <tbody>
+                {% for trade in trades %}
+                <tr>
+                    <td>{{ trade.code }}</td>
+                    <td>{{ trade.entry_date }}</td>
+                    <td>{{ trade.exit_date }}</td>
+                    <td>{{ trade.quantity }}</td>
+                    <td>{{ "{:.2}"|format(trade.entry_price) }}</td>
+                    <td>{{ "{:.2}"|format(trade.exit_price) }}</td>
+                    <td>{{ "{:.0}"|format(trade.pnl) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endif %}
+
+    {% if let Some(results) = code_results %}
+        {% if !results.is_empty() %}
+        <section>
+            <h2>Per-Code Results</h2>
+            <table>
+                <thead>
+                    <tr><th>Code</th><th>Trades</th><th>Win Rate</th><th>Total PnL</th></tr>
+                </thead>
+                <tbody>
+                    {% for cr in results %}
+                    <tr>
+                        <td>{{ cr.code }}</td>
+                        <td>{{ cr.total_trades }}</td>
+                        <td>{{ "{:.1}"|format(cr.win_rate * 100.0) }}%</td>
+                        <td>{{ "{:.0}"|format(cr.total_pnl) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+    {% endif %}
+
+    {% if !skipped.is_empty() %}
+    <section>
+        <h2>Skipped Codes</h2>
+        <ul>
+            {% for s in skipped %}
+            <li>{{ s.code }}: {{ s.reason }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+</div>
