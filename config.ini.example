@@ -90,3 +90,15 @@ max_positions = 4
 ; Optional: path to custom Typst template
 ; If omitted, uses the built-in default template
 ; template_path = /path/to/custom_template.typ
+
+; --- Backup Configuration ---
+; Used by backup/rotation scripts (not the Rust binary)
+
+[backup]
+; Backup output directory
+destination = /var/backups/samtrader
+
+; Retention policy
+retention_daily = 7     ; Days of daily backups to keep
+retention_weekly = 4    ; Weeks of weekly backups to keep (Sunday backups)
+retention_monthly = 3   ; Months of monthly backups to keep (1st of month)
