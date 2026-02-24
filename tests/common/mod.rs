@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use samtrader::domain::backtest::BacktestConfig;
 use samtrader::domain::code_data::CodeData;
 use samtrader::domain::error::SamtraderError;
-use samtrader::domain::ohlcv::OhlcvBar;
+pub use samtrader::domain::ohlcv::OhlcvBar;
 use samtrader::domain::rule::{Operand, Rule};
 use samtrader::domain::strategy::Strategy;
 use samtrader::ports::data_port::DataPort;
@@ -130,7 +130,12 @@ pub fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()
 }
 
-pub fn generate_bars(code: &str, start_date: &str, count: usize, start_price: f64) -> Vec<OhlcvBar> {
+pub fn generate_bars(
+    code: &str,
+    start_date: &str,
+    count: usize,
+    start_price: f64,
+) -> Vec<OhlcvBar> {
     let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d").unwrap();
     (0..count)
         .map(|i| OhlcvBar {

@@ -162,10 +162,7 @@ pub fn render_universe_summary(code_results: &[CodeResult]) -> String {
 /// Render per-code detail sections with individual trade logs.
 ///
 /// Returns empty string if `code_results` is empty.
-pub fn render_per_code_sections(
-    result: &BacktestResult,
-    code_results: &[CodeResult],
-) -> String {
+pub fn render_per_code_sections(result: &BacktestResult, code_results: &[CodeResult]) -> String {
     if code_results.is_empty() {
         return String::new();
     }
@@ -318,9 +315,7 @@ pub fn render_monthly_returns(equity_curve: &[EquityPoint]) -> String {
                 } else {
                     "black"
                 };
-                out.push_str(&format!(
-                    " [#text(fill: {color})[{pct:.1}%]],",
-                ));
+                out.push_str(&format!(" [#text(fill: {color})[{pct:.1}%]],",));
             } else {
                 out.push_str(" [],");
             }
@@ -335,8 +330,8 @@ pub fn render_monthly_returns(equity_curve: &[EquityPoint]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
     use crate::domain::rule::{Operand, Rule};
+    use chrono::NaiveDate;
 
     fn sample_strategy() -> Strategy {
         Strategy {

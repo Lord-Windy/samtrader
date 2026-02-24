@@ -6,17 +6,19 @@
 //! - `max_positions` enforcement across codes
 //! - Partial universe validation (some codes skipped, others proceed)
 //! - Backward compatibility: single `code` config produces identical results
+//! - Full backtest pipeline via SqliteAdapter with seeded in-memory database (TRD §14.2)
+//! - Parity: SqliteAdapter and MockDataPort return identical results for same data
 
 mod common;
 
 use common::*;
 use samtrader::domain::backtest::{run_backtest, BacktestResult};
-use samtrader::ports::data_port::DataPort;
 use samtrader::domain::code_data::{build_unified_timeline, CodeData};
 use samtrader::domain::error::SamtraderError;
 use samtrader::domain::rule::{Operand, Rule};
 use samtrader::domain::strategy::Strategy;
 use samtrader::domain::universe::{parse_codes, validate_universe, SkipReason, MIN_OHLCV_BARS};
+use samtrader::ports::data_port::DataPort;
 use samtrader::ports::report_port::ReportPort;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -772,7 +774,10 @@ mod report_generation {
         let ref res = calls[0].0;
 
         let equity = &res.portfolio.equity_curve;
-        assert!(equity.len() >= 2, "need at least 2 points for drawdown chart");
+        assert!(
+            equity.len() >= 2,
+            "need at least 2 points for drawdown chart"
+        );
 
         let mut peak = equity[0].equity;
         let mut max_drawdown = 0.0_f64;
@@ -818,8 +823,8 @@ mod report_generation {
         assert_eq!(first_date.format("%Y-%m").to_string(), "2024-01");
         assert_eq!(last_date.format("%Y-%m").to_string(), "2024-01");
 
-        let monthly_return =
-            (equity.last().unwrap().equity - equity.first().unwrap().equity) / equity.first().unwrap().equity;
+        let monthly_return = (equity.last().unwrap().equity - equity.first().unwrap().equity)
+            / equity.first().unwrap().equity;
         assert!(monthly_return.is_finite());
     }
 
@@ -867,6 +872,252 @@ mod report_generation {
         if gross_loss > 0.0 {
             let profit_factor = gross_profit / gross_loss;
             assert!(profit_factor.is_finite());
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+mod sqlite_adapter_tests {
+    use super::*;
+    use samtrader::adapters::sqlite_adapter::SqliteAdapter;
+    use samtrader::domain::universe::validate_universe;
+
+    fn seed_sqlite_adapter(bars: &[OhlcvBar]) -> SqliteAdapter {
+        let adapter = SqliteAdapter::in_memory().unwrap();
+        adapter.initialize_schema().unwrap();
+        adapter.insert_bars(bars).unwrap();
+        adapter
+    }
+
+    #[test]
+    fn full_backtest_pipeline_via_sqlite_adapter() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 105.0),
+            make_bar("BHP", "2024-01-04", 95.0),
+            make_bar("BHP", "2024-01-05", 90.0),
+        ];
+
+        let adapter = seed_sqlite_adapter(&bars);
+
+        let ohlcv = adapter
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 1), date(2024, 1, 5))
+            .unwrap();
+        assert_eq!(ohlcv.len(), 5);
+
+        let code_data = make_code_data("BHP", ohlcv);
+        let timeline = build_unified_timeline(&[code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let result = run_backtest(&[code_data], &timeline, &strategy, &config);
+
+        assert_eq!(result.portfolio.closed_trades.len(), 1);
+        let trade = &result.portfolio.closed_trades[0];
+        assert_eq!(trade.code, "BHP");
+        assert_eq!(trade.entry_date, date(2024, 1, 2));
+        assert_eq!(trade.exit_date, date(2024, 1, 4));
+    }
+
+    #[test]
+    fn sqlite_multi_code_backtest() {
+        let bhp_bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 120.0),
+            make_bar("BHP", "2024-01-04", 90.0),
+        ];
+        let cba_bars = vec![
+            make_bar("CBA", "2024-01-01", 90.0),
+            make_bar("CBA", "2024-01-02", 110.0),
+            make_bar("CBA", "2024-01-03", 115.0),
+            make_bar("CBA", "2024-01-04", 90.0),
+        ];
+
+        let all_bars: Vec<_> = bhp_bars
+            .iter()
+            .cloned()
+            .chain(cba_bars.iter().cloned())
+            .collect();
+        let adapter = seed_sqlite_adapter(&all_bars);
+
+        let bhp_ohlcv = adapter
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 1), date(2024, 1, 4))
+            .unwrap();
+        let cba_ohlcv = adapter
+            .fetch_ohlcv("CBA", "ASX", date(2024, 1, 1), date(2024, 1, 4))
+            .unwrap();
+
+        let bhp = make_code_data("BHP", bhp_ohlcv);
+        let cba = make_code_data("CBA", cba_ohlcv);
+        let timeline = build_unified_timeline(&[bhp.clone(), cba.clone()]);
+
+        let mut strategy = make_simple_strategy();
+        strategy.max_positions = 2;
+        let config = sample_config();
+
+        let result = run_backtest(&[bhp, cba], &timeline, &strategy, &config);
+
+        assert_eq!(result.portfolio.closed_trades.len(), 2);
+    }
+
+    #[test]
+    fn sqlite_universe_validation() {
+        let good_bars = generate_bars("GOOD", "2024-01-01", 50, 100.0);
+        let few_bars = generate_bars("FEW", "2024-01-01", 10, 50.0);
+
+        let all_bars: Vec<_> = good_bars
+            .iter()
+            .cloned()
+            .chain(few_bars.iter().cloned())
+            .collect();
+        let adapter = seed_sqlite_adapter(&all_bars);
+
+        let codes = vec!["GOOD".to_string(), "FEW".to_string()];
+        let result =
+            validate_universe(&adapter, codes, "ASX", date(2024, 1, 1), date(2024, 12, 31))
+                .unwrap();
+
+        assert_eq!(result.universe.codes, vec!["GOOD"]);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].code, "FEW");
+    }
+
+    #[test]
+    fn sqlite_list_symbols_returns_inserted_codes() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 100.0),
+            make_bar("CBA", "2024-01-01", 100.0),
+            make_bar("RIO", "2024-01-01", 100.0),
+        ];
+        let adapter = seed_sqlite_adapter(&bars);
+
+        let symbols = adapter.list_symbols("ASX").unwrap();
+        assert_eq!(symbols, vec!["BHP", "CBA", "RIO"]);
+    }
+
+    #[test]
+    fn sqlite_get_data_range_returns_correct_range() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 100.0),
+            make_bar("BHP", "2024-01-05", 105.0),
+            make_bar("BHP", "2024-01-10", 110.0),
+        ];
+        let adapter = seed_sqlite_adapter(&bars);
+
+        let range = adapter.get_data_range("BHP", "ASX").unwrap();
+        assert!(range.is_some());
+        let (min, max, count) = range.unwrap();
+        assert_eq!(min, date(2024, 1, 1));
+        assert_eq!(max, date(2024, 1, 10));
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn sqlite_data_port_fetch_respects_date_range() {
+        let bars = vec![
+            make_bar("BHP", "2024-01-01", 100.0),
+            make_bar("BHP", "2024-01-02", 101.0),
+            make_bar("BHP", "2024-01-03", 102.0),
+            make_bar("BHP", "2024-01-04", 103.0),
+            make_bar("BHP", "2024-01-05", 104.0),
+        ];
+        let adapter = seed_sqlite_adapter(&bars);
+
+        let fetched = adapter
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 2), date(2024, 1, 4))
+            .unwrap();
+        assert_eq!(fetched.len(), 3);
+    }
+}
+
+#[cfg(feature = "sqlite")]
+mod sqlite_parity_tests {
+    use super::*;
+    use samtrader::adapters::sqlite_adapter::SqliteAdapter;
+
+    #[test]
+    fn cross_adapter_parity_backtest_results() {
+        let test_bars = vec![
+            make_bar("BHP", "2024-01-01", 90.0),
+            make_bar("BHP", "2024-01-02", 110.0),
+            make_bar("BHP", "2024-01-03", 105.0),
+            make_bar("BHP", "2024-01-04", 95.0),
+        ];
+
+        let sqlite_adapter = SqliteAdapter::in_memory().unwrap();
+        sqlite_adapter.initialize_schema().unwrap();
+        sqlite_adapter.insert_bars(&test_bars).unwrap();
+
+        let sqlite_ohlcv = sqlite_adapter
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 1), date(2024, 1, 4))
+            .unwrap();
+
+        let sqlite_code_data = make_code_data("BHP", sqlite_ohlcv.clone());
+        let sqlite_timeline = build_unified_timeline(&[sqlite_code_data.clone()]);
+        let strategy = make_simple_strategy();
+        let config = sample_config();
+
+        let sqlite_result = run_backtest(&[sqlite_code_data], &sqlite_timeline, &strategy, &config);
+
+        let mock_port = MockDataPort::new().with_bars("BHP", test_bars.clone());
+        let mock_ohlcv = mock_port
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 1), date(2024, 1, 4))
+            .unwrap();
+        let mock_code_data = make_code_data("BHP", mock_ohlcv);
+        let mock_timeline = build_unified_timeline(&[mock_code_data.clone()]);
+        let mock_result = run_backtest(&[mock_code_data], &mock_timeline, &strategy, &config);
+
+        assert_eq!(
+            sqlite_result.portfolio.closed_trades.len(),
+            mock_result.portfolio.closed_trades.len()
+        );
+        assert_eq!(
+            sqlite_result.portfolio.equity_curve.len(),
+            mock_result.portfolio.equity_curve.len()
+        );
+
+        for (sqlite_trade, mock_trade) in sqlite_result
+            .portfolio
+            .closed_trades
+            .iter()
+            .zip(mock_result.portfolio.closed_trades.iter())
+        {
+            assert_eq!(sqlite_trade.code, mock_trade.code);
+            assert_eq!(sqlite_trade.entry_date, mock_trade.entry_date);
+            assert_eq!(sqlite_trade.exit_date, mock_trade.exit_date);
+            assert!((sqlite_trade.entry_price - mock_trade.entry_price).abs() < f64::EPSILON);
+            assert!((sqlite_trade.exit_price - mock_trade.exit_price).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn cross_adapter_parity_fetch_ohlcv() {
+        let test_bars = vec![
+            make_bar("BHP", "2024-01-01", 100.0),
+            make_bar("BHP", "2024-01-02", 101.0),
+            make_bar("BHP", "2024-01-03", 102.0),
+        ];
+
+        let sqlite_adapter = SqliteAdapter::in_memory().unwrap();
+        sqlite_adapter.initialize_schema().unwrap();
+        sqlite_adapter.insert_bars(&test_bars).unwrap();
+
+        let sqlite_bars = sqlite_adapter
+            .fetch_ohlcv("BHP", "ASX", date(2024, 1, 1), date(2024, 1, 3))
+            .unwrap();
+
+        assert_eq!(sqlite_bars.len(), test_bars.len());
+        for (sqlite_bar, test_bar) in sqlite_bars.iter().zip(test_bars.iter()) {
+            assert_eq!(sqlite_bar.code, test_bar.code);
+            assert_eq!(sqlite_bar.exchange, test_bar.exchange);
+            assert_eq!(sqlite_bar.date, test_bar.date);
+            assert!((sqlite_bar.open - test_bar.open).abs() < f64::EPSILON);
+            assert!((sqlite_bar.high - test_bar.high).abs() < f64::EPSILON);
+            assert!((sqlite_bar.low - test_bar.low).abs() < f64::EPSILON);
+            assert!((sqlite_bar.close - test_bar.close).abs() < f64::EPSILON);
+            assert_eq!(sqlite_bar.volume, test_bar.volume);
         }
     }
 }

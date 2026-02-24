@@ -174,7 +174,10 @@ mod tests {
         };
 
         let output = resolve(default_template::template(), &ctx);
-        assert!(!output.contains("{{"), "unresolved placeholder in output: {output}");
+        assert!(
+            !output.contains("{{"),
+            "unresolved placeholder in output: {output}"
+        );
     }
 
     #[test]
