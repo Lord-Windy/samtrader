@@ -73,22 +73,7 @@ pub async fn build_router(state: AppState) -> Router {
         )));
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
 
-    Router::new()
-        // Protected routes (require login)
-        .route("/", get(handlers::dashboard))
-        .route("/htmx.js", get(handlers::htmx_js))
-        .route("/backtest", get(handlers::backtest_form))
-        .route("/backtest/run", post(handlers::run_backtest))
-        .route("/report/{id}", get(handlers::view_report))
-        .route(
-            "/report/{id}/equity-chart",
-            get(handlers::equity_chart_svg),
-        )
-        .route(
-            "/report/{id}/drawdown-chart",
-            get(handlers::drawdown_chart_svg),
-        )
-        .route("/logout", post(handlers::logout))
+    app_routes()
         .route_layer(login_required!(auth::Backend, login_url = "/login"))
         // Public routes
         .route("/login", get(handlers::login_form).post(handlers::login))
@@ -98,11 +83,8 @@ pub async fn build_router(state: AppState) -> Router {
         .with_state(Arc::new(state))
 }
 
-fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
-    headers.get("HX-Request").is_some()
-}
-
-pub fn build_test_router(state: AppState) -> Router {
+/// Shared route definitions used by both production and test routers.
+fn app_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(handlers::dashboard))
         .route("/htmx.js", get(handlers::htmx_js))
@@ -118,6 +100,14 @@ pub fn build_test_router(state: AppState) -> Router {
             get(handlers::drawdown_chart_svg),
         )
         .route("/logout", post(handlers::logout))
+}
+
+fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
+    headers.get("HX-Request").is_some()
+}
+
+pub fn build_test_router(state: AppState) -> Router {
+    app_routes()
         .route("/login", get(handlers::login_form).post(handlers::login))
         .nest_service("/static", ServeDir::new("static"))
         .fallback(handlers::not_found)
