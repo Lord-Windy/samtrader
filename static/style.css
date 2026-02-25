@@ -167,8 +167,7 @@ form label {
     font-weight: 500;
 }
 
-form label span,
-form label > text {
+form label span {
     display: block;
     margin-bottom: 6px;
     color: var(--fg);

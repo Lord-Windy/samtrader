@@ -12,8 +12,8 @@
         <div class="container">
             <a href="/" class="nav-brand">Samtrader</a>
             <div class="nav-links">
-                <a href="/">Dashboard</a>
-                <a href="/backtest">New Backtest</a>
+                <a href="/"{% if nav_path == "/" %} class="active"{% endif %}>Dashboard</a>
+                <a href="/backtest"{% if nav_path == "/backtest" %} class="active"{% endif %}>New Backtest</a>
             </div>
         </div>
     </nav>
