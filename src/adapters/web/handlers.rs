@@ -1,9 +1,9 @@
 //! HTTP request handlers for web adapter.
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::HeaderMap,
-    response::Response,
+    response::{IntoResponse, Redirect, Response},
     Form,
 };
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use crate::domain::strategy::Strategy;
 use crate::domain::universe::{validate_universe, SkipReason};
 
 use super::{AppState, WebError};
-use super::templates::render_page;
+use super::templates::{render_page, LoginTemplate};
 
 pub async fn dashboard(
     State(_state): State<Arc<AppState>>,
@@ -27,6 +27,32 @@ pub async fn dashboard(
         recent_backtests: &[],
     };
     render_page(&template, "Dashboard - Samtrader", &headers)
+}
+
+pub async fn login_form(
+    State(_state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, WebError> {
+    let template = LoginTemplate { error: None };
+    render_page(&template, "Login - Samtrader", &headers)
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct LoginFormData {
+    pub username: String,
+    pub password: String,
+}
+
+pub async fn login(
+    State(_state): State<Arc<AppState>>,
+    _headers: HeaderMap,
+    Form(_form): Form<LoginFormData>,
+) -> Result<Response, WebError> {
+    Ok(Redirect::to("/").into_response())
+}
+
+pub async fn logout() -> Result<Response, WebError> {
+    Ok(Redirect::to("/login").into_response())
 }
 
 pub async fn backtest_form(
@@ -190,8 +216,26 @@ pub async fn run_backtest(
 
 pub async fn view_report(
     State(_state): State<Arc<AppState>>,
+    Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
+    let _ = id;
     let template = super::templates::ReportPlaceholderTemplate;
     render_page(&template, "Report - Samtrader", &headers)
+}
+
+pub async fn equity_chart_svg(
+    State(_state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Response, WebError> {
+    let _ = id;
+    Err(WebError::not_found("Report not found"))
+}
+
+pub async fn drawdown_chart_svg(
+    State(_state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Response, WebError> {
+    let _ = id;
+    Err(WebError::not_found("Report not found"))
 }
