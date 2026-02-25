@@ -4,41 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <style>
-        body { font-family: system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        nav { margin-bottom: 20px; }
-        nav a { margin-right: 15px; text-decoration: none; color: #0066cc; }
-        nav a:hover { text-decoration: underline; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f4f4f4; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        .chart { margin: 20px 0; }
-        .chart svg { max-width: 100%; height: auto; }
-        .error { background: #fee; border: 1px solid #c00; padding: 20px; border-radius: 4px; }
-        form label { display: block; margin: 10px 0; }
-        form input { width: 300px; padding: 5px; }
-        form button { margin-top: 15px; padding: 8px 16px; }
-        .positive { color: #16a34a; font-weight: 500; }
-        .negative { color: #dc2626; font-weight: 500; }
-        .neutral { color: #6b7280; }
-        .monthly-returns th, .monthly-returns td { text-align: center; min-width: 60px; }
-        .monthly-returns td.positive { background-color: #dcfce7; }
-        .monthly-returns td.negative { background-color: #fee2e2; }
-        details { margin-bottom: 10px; }
-        details summary { cursor: pointer; font-weight: 500; padding: 8px; background: #f4f4f4; border: 1px solid #ddd; }
-        details[open] summary { border-bottom: none; }
-        details > div, details > table { border: 1px solid #ddd; border-top: none; margin-top: 0; }
-    </style>
 </head>
 <body>
     <nav>
-        <a href="/">Dashboard</a>
-        <a href="/backtest">New Backtest</a>
+        <div class="container">
+            <a href="/" class="nav-brand">Samtrader</a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/backtest">New Backtest</a>
+            </div>
+        </div>
     </nav>
     <main>
-    {{ content|safe }}
+        <div class="container">
+            {{ content|safe }}
+        </div>
     </main>
 </body>
 </html>
