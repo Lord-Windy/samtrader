@@ -896,8 +896,6 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
             config: Arc::new(config),
         };
 
-        let router = build_router(state);
-
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
@@ -907,6 +905,8 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
         };
 
         rt.block_on(async {
+            let router = build_router(state).await;
+
             let listener = match tokio::net::TcpListener::bind(addr).await {
                 Ok(l) => l,
                 Err(e) => {

@@ -41,7 +41,9 @@
             <div class="nav-links">
                 <a href="/"{% if nav_path == "/" %} class="active"{% endif %}>Dashboard</a>
                 <a href="/backtest"{% if nav_path == "/backtest" %} class="active"{% endif %}>New Backtest</a>
-                <a href="/logout">Logout</a>
+                <form method="post" action="/logout" style="display:inline; margin:0">
+                    <button type="submit" style="background:none; border:none; color:#0066cc; cursor:pointer; font:inherit; padding:0; text-decoration:none">Logout</button>
+                </form>
             </div>
         </div>
     </nav>
