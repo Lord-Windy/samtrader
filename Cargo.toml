@@ -53,5 +53,6 @@ proptest = "1"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["full"] }
+argon2 = { version = "0.5" }
 axum = { version = "0.8" }
 http-body-util = "0.1"
