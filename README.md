@@ -73,17 +73,17 @@ samtrader validate -s strategy.ini
 samtrader serve -c config.ini
 ```
 
-The web interface is available at `http://127.0.0.1:3000` by default. Configure bind address and port in the `[web]` section.
+The web interface is available at `http://127.0.0.1:3000` by default. Configure the listen address in the `[web]` section.
 
 ### Password Hashing
 
-For web deployments, generate a password hash for the `[auth]` config section:
+For web deployments, generate a password hash:
 
 ```bash
 samtrader hash-password
 ```
 
-This prompts for a password and outputs an Argon2id hash to paste into your config.
+This prompts for a password and outputs an Argon2id hash suitable for use in deployment configuration (e.g. Ansible `[auth]` section).
 
 ### Database Migration
 
@@ -151,37 +151,31 @@ take_profit = 0.0
 max_positions = 4
 ```
 
-#### [web]
+#### [report]
 
 ```ini
-[web]
-bind = 127.0.0.1
-port = 3000
+[report]
+; template_path = /path/to/custom_template.typ
 ```
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `bind` | Listen address | 127.0.0.1 |
-| `port` | Listen port | 3000 |
+| `template_path` | Path to custom Typst report template | Built-in default |
 
-#### [auth]
+#### [web]
 
 ```ini
-[auth]
-username = admin
-password_hash = $argon2id$v=19$m=19456,t=2,p=1$...
-session_secret = <64-hex-chars>
-session_lifetime = 86400
+[web]
+listen = 127.0.0.1:3000
 ```
 
-| Key | Description |
-|-----|-------------|
-| `username` | Login username |
-| `password_hash` | Argon2id hash from `samtrader hash-password` |
-| `session_secret` | 64-character hex string for session cookie signing |
-| `session_lifetime` | Session duration in seconds (default: 86400 = 24h) |
+| Key | Description | Default |
+|-----|-------------|---------|
+| `listen` | Socket address to bind | 127.0.0.1:3000 |
 
 #### [backup]
+
+> **Note:** This section is read by the backup shell scripts, not by the Rust binary.
 
 ```ini
 [backup]
