@@ -48,32 +48,32 @@ impl ConfigPort for MockConfigPort {
     }
 }
 
-async fn create_test_app() -> Router {
+fn create_test_app() -> Router {
     let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
     let data_port = MockDataPort::new().with_bars("BHP", bars);
-    
+
     let state = AppState {
         data_port: Arc::new(data_port),
         config: Arc::new(MockConfigPort),
-        backtest_cache: Default::default(),
+        backtest_cache: samtrader::adapters::web::new_backtest_cache(),
     };
-    
-    build_test_router(state).await
+
+    build_test_router(state)
 }
 
-async fn create_test_app_with_data(codes: &[(&str, Vec<OhlcvBar>)]) -> Router {
+fn create_test_app_with_data(codes: &[(&str, Vec<OhlcvBar>)]) -> Router {
     let mut port = MockDataPort::new();
     for (code, bars) in codes {
         port = port.with_bars(code, bars.clone());
     }
-    
+
     let state = AppState {
         data_port: Arc::new(port),
         config: Arc::new(MockConfigPort),
-        backtest_cache: Default::default(),
+        backtest_cache: samtrader::adapters::web::new_backtest_cache(),
     };
-    
-    build_test_router(state).await
+
+    build_test_router(state)
 }
 
 mod dashboard_tests {
@@ -81,7 +81,7 @@ mod dashboard_tests {
 
     #[tokio::test]
     async fn dashboard_renders_with_ok_status() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -93,7 +93,7 @@ mod dashboard_tests {
 
     #[tokio::test]
     async fn dashboard_contains_title() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -108,7 +108,7 @@ mod dashboard_tests {
 
     #[tokio::test]
     async fn dashboard_htmx_fragment_excludes_html_wrapper() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(
@@ -133,7 +133,7 @@ mod backtest_form_tests {
 
     #[tokio::test]
     async fn backtest_form_renders_with_ok_status() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(Request::builder().uri("/backtest").body(Body::empty()).unwrap())
@@ -145,7 +145,7 @@ mod backtest_form_tests {
 
     #[tokio::test]
     async fn backtest_form_contains_required_fields() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(Request::builder().uri("/backtest").body(Body::empty()).unwrap())
@@ -164,7 +164,7 @@ mod backtest_form_tests {
 
     #[tokio::test]
     async fn backtest_form_contains_htmx_attributes() {
-        let app = create_test_app().await;
+        let app = create_test_app();
         
         let response = app
             .oneshot(Request::builder().uri("/backtest").body(Body::empty()).unwrap())
@@ -196,7 +196,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_returns_ok_status() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let response = app.oneshot(create_backtest_request()).await.unwrap();
         let status = response.status();
@@ -209,7 +209,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_returns_report_content() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let response = app.oneshot(create_backtest_request()).await.unwrap();
         
@@ -222,7 +222,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_returns_metrics_table() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let response = app.oneshot(create_backtest_request()).await.unwrap();
         
@@ -238,7 +238,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_returns_equity_chart() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let response = app.oneshot(create_backtest_request()).await.unwrap();
         
@@ -254,7 +254,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_returns_drawdown_chart() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let response = app.oneshot(create_backtest_request()).await.unwrap();
         
@@ -270,7 +270,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_shows_strategy_section() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let form_data = "codes=BHP&start_date=2024-01-01&end_date=2024-01-31&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
         
@@ -296,7 +296,7 @@ mod backtest_submission_tests {
     #[tokio::test]
     async fn backtest_submission_htmx_fragment() {
         let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
-        let app = create_test_app_with_data(&[("BHP", bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bars)]);
         
         let form_data = "codes=BHP&start_date=2024-01-01&end_date=2024-01-31&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
         
@@ -329,7 +329,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn backtest_with_invalid_date_returns_error() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let response = app
             .oneshot(
@@ -348,7 +348,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn backtest_with_empty_codes_returns_error() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let form_data = "codes=&start_date=2024-01-01&end_date=2024-02-20&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
 
@@ -369,7 +369,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn backtest_with_invalid_rule_returns_error() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let form_data = "codes=BHP&start_date=2024-01-01&end_date=2024-02-20&initial_capital=100000&entry_rule=invalid%20rule&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
 
@@ -390,7 +390,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn error_full_page_wraps_in_base_template() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let response = app
             .oneshot(
@@ -415,7 +415,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn error_htmx_returns_fragment_only() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let response = app
             .oneshot(
@@ -440,7 +440,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn not_found_returns_404_with_error_page() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let response = app
             .oneshot(
@@ -462,7 +462,7 @@ mod error_handling_tests {
 
     #[tokio::test]
     async fn not_found_htmx_returns_fragment() {
-        let app = create_test_app().await;
+        let app = create_test_app();
 
         let response = app
             .oneshot(
@@ -491,7 +491,7 @@ mod multi_code_backtest_tests {
     async fn multi_code_backtest_returns_ok() {
         let bhp_bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
         let cba_bars = generate_bars("CBA", "2024-01-01", 50, 50.0);
-        let app = create_test_app_with_data(&[("BHP", bhp_bars), ("CBA", cba_bars)]).await;
+        let app = create_test_app_with_data(&[("BHP", bhp_bars), ("CBA", cba_bars)]);
         
         let form_data = "codes=BHP,CBA&start_date=2024-01-01&end_date=2024-01-31&initial_capital=100000&entry_rule=ABOVE(close%2C%2050)&exit_rule=BELOW(close%2C%2050)&position_size=0.25&max_positions=2";
         

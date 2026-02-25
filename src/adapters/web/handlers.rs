@@ -214,6 +214,7 @@ pub async fn run_backtest(
         let mut cache = state.backtest_cache.write().unwrap();
         cache.insert(report_id.clone(), super::CachedBacktest {
             equity_curve: result.portfolio.equity_curve.clone(),
+            created_at: std::time::Instant::now(),
         });
     }
 
