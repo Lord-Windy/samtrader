@@ -73,8 +73,19 @@ pub async fn build_router(state: AppState) -> Router {
         )));
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
 
+    app_routes()
+        .route_layer(login_required!(auth::Backend, login_url = "/login"))
+        // Public routes
+        .route("/login", get(handlers::login_form).post(handlers::login))
+        .nest_service("/static", ServeDir::new("static"))
+        .fallback(handlers::not_found)
+        .layer(auth_layer)
+        .with_state(Arc::new(state))
+}
+
+/// Shared route definitions used by both production and test routers.
+fn app_routes() -> Router<Arc<AppState>> {
     Router::new()
-        // Protected routes (require login)
         .route("/", get(handlers::dashboard))
         .route("/htmx.js", get(handlers::htmx_js))
         .route("/backtest", get(handlers::backtest_form))
@@ -89,15 +100,16 @@ pub async fn build_router(state: AppState) -> Router {
             get(handlers::drawdown_chart_svg),
         )
         .route("/logout", post(handlers::logout))
-        .route_layer(login_required!(auth::Backend, login_url = "/login"))
-        // Public routes
-        .route("/login", get(handlers::login_form).post(handlers::login))
-        .nest_service("/static", ServeDir::new("static"))
-        .fallback(handlers::not_found)
-        .layer(auth_layer)
-        .with_state(Arc::new(state))
 }
 
 fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
     headers.get("HX-Request").is_some()
+}
+
+pub fn build_test_router(state: AppState) -> Router {
+    app_routes()
+        .route("/login", get(handlers::login_form).post(handlers::login))
+        .nest_service("/static", ServeDir::new("static"))
+        .fallback(handlers::not_found)
+        .with_state(Arc::new(state))
 }

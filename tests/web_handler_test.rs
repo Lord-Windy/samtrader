@@ -16,7 +16,7 @@ use axum::{
     Router,
 };
 use http_body_util::BodyExt;
-use samtrader::adapters::web::{build_router, AppState};
+use samtrader::adapters::web::{build_test_router, AppState};
 use samtrader::ports::config_port::ConfigPort;
 use samtrader::domain::ohlcv::OhlcvBar;
 use std::sync::Arc;
@@ -27,12 +27,21 @@ use common::*;
 struct MockConfigPort;
 
 impl ConfigPort for MockConfigPort {
-    fn get_string(&self, _section: &str, _key: &str) -> Option<String> {
-        None
+    fn get_string(&self, section: &str, key: &str) -> Option<String> {
+        match (section, key) {
+            ("auth", "username") => Some("testuser".to_string()),
+            ("auth", "password_hash") => Some("$argon2id$v=19$m=19456,t=2,p=1$test$sbdP7s7jPzCvT9LkL8PvQg$test".to_string()),
+            ("auth", "session_secret") => Some("00000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001".to_string()),
+            ("database", "sqlite_path") => Some(":memory:".to_string()),
+            _ => None,
+        }
     }
 
-    fn get_int(&self, _section: &str, _key: &str, default: i64) -> i64 {
-        default
+    fn get_int(&self, section: &str, key: &str, default: i64) -> i64 {
+        match (section, key) {
+            ("auth", "session_lifetime") => 86400,
+            _ => default,
+        }
     }
 
     fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
@@ -53,7 +62,7 @@ fn create_test_app() -> Router {
         config: Arc::new(MockConfigPort),
     };
     
-    build_router(state)
+    build_test_router(state)
 }
 
 fn create_test_app_with_data(codes: &[(&str, Vec<OhlcvBar>)]) -> Router {
@@ -67,7 +76,7 @@ fn create_test_app_with_data(codes: &[(&str, Vec<OhlcvBar>)]) -> Router {
         config: Arc::new(MockConfigPort),
     };
     
-    build_router(state)
+    build_test_router(state)
 }
 
 mod dashboard_tests {
