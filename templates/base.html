@@ -30,15 +30,20 @@
         details summary { cursor: pointer; font-weight: 500; padding: 8px; background: #f4f4f4; border: 1px solid #ddd; }
         details[open] summary { border-bottom: none; }
         details > div, details > table { border: 1px solid #ddd; border-top: none; margin-top: 0; }
+        footer { margin-top: 40px; padding-top: 10px; border-top: 1px solid #ddd; color: #6b7280; font-size: 0.85em; }
     </style>
 </head>
 <body>
     <nav>
         <a href="/">Dashboard</a>
         <a href="/backtest">New Backtest</a>
+        <a href="/logout">Logout</a>
     </nav>
     <main>
     {{ content|safe }}
     </main>
+    <footer>
+        <p>Samtrader</p>
+    </footer>
 </body>
 </html>
