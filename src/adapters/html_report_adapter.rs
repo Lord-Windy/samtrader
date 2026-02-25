@@ -2,14 +2,17 @@
 //!
 //! Generates HTML reports using Askama templates with inline SVG charts.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use crate::domain::backtest::{BacktestResult, MultiCodeResult};
 use crate::domain::error::SamtraderError;
 use crate::domain::metrics::Metrics;
+use crate::domain::portfolio::EquityPoint;
 use crate::domain::strategy::Strategy;
 use crate::ports::report_port::ReportPort;
+use chrono::Datelike;
 
 use askama::Template;
 
@@ -81,6 +84,8 @@ impl ReportPort for HtmlReportAdapter {
         let initial_capital = result.portfolio.initial_capital;
         let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
 
+        let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
+
         let template = ReportTemplate {
             strategy,
             metrics: &metrics,
@@ -143,6 +148,8 @@ impl ReportPort for HtmlReportAdapter {
         let code_results = crate::domain::metrics::CodeResult::compute_per_code(
             &result.aggregate.portfolio.closed_trades,
         );
+
+        let monthly_returns = compute_monthly_returns(&result.aggregate.portfolio.equity_curve);
 
         let template = ReportTemplate {
             strategy,
@@ -263,7 +270,7 @@ mod tests {
 
         let contents = fs::read_to_string(&output_path).unwrap();
         assert!(contents.contains("Position Size"));
-        assert!(contents.contains("25%"));
+        assert!(contents.contains("25.0%"));
         assert!(contents.contains("Max Positions"));
         assert!(contents.contains("5"));
     }
@@ -385,7 +392,7 @@ mod tests {
         adapter.write_multi(&multi, &strategy, output_str).unwrap();
 
         let contents = fs::read_to_string(&output_path).unwrap();
-        assert!(contents.contains("Per-Code Results"));
+        assert!(contents.contains("Universe Summary"));
         assert!(contents.contains("BHP"));
         assert!(contents.contains("CBA"));
         assert!(contents.contains("<svg"));
