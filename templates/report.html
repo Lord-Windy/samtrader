@@ -47,12 +47,32 @@
 
     <section>
         <h2>Equity Chart</h2>
-        <div class="chart">{{ equity_svg|safe }}</div>
+        <div class="chart">
+            {% if let Some(svg) = equity_svg %}
+                {{ svg|safe }}
+            {% else if !report_id.is_empty() %}
+                <div hx-get="/report/{{ report_id }}/equity-chart"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                    <p><em>Loading chart...</em></p>
+                </div>
+            {% endif %}
+        </div>
     </section>
 
     <section>
         <h2>Drawdown Chart</h2>
-        <div class="chart">{{ drawdown_svg|safe }}</div>
+        <div class="chart">
+            {% if let Some(svg) = drawdown_svg %}
+                {{ svg|safe }}
+            {% else if !report_id.is_empty() %}
+                <div hx-get="/report/{{ report_id }}/drawdown-chart"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                    <p><em>Loading chart...</em></p>
+                </div>
+            {% endif %}
+        </div>
     </section>
 
     {% if let Some(results) = code_results %}

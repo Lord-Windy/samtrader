@@ -894,6 +894,7 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
         let state = crate::adapters::web::AppState {
             data_port,
             config: Arc::new(config),
+            backtest_cache: Default::default(),
         };
 
         let rt = match tokio::runtime::Runtime::new() {

@@ -76,10 +76,7 @@ impl IntoResponse for WebError {
             Err(_) => return (self.status, self.message).into_response(),
         };
 
-        let is_htmx = self
-            .headers
-            .as_ref()
-            .map_or(false, |h| is_htmx_request(h));
+        let is_htmx = self.headers.as_ref().map_or(false, |h| is_htmx_request(h));
 
         if is_htmx {
             (self.status, Html(content)).into_response()
@@ -87,6 +84,7 @@ impl IntoResponse for WebError {
             let page = BasePage {
                 title: "Error",
                 content: &content,
+                nav_path: "",
             };
             match page.render() {
                 Ok(html) => (self.status, Html(html)).into_response(),

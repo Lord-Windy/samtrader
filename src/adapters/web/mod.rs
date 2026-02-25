@@ -18,19 +18,57 @@ use axum::{
 };
 use axum_login::{login_required, AuthManagerLayerBuilder};
 use axum_login::tower_sessions::{Expiry, SessionManagerLayer, cookie::Key};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use tower_http::services::ServeDir;
 use tower_sessions_rusqlite_store::RusqliteStore;
 
 use crate::ports::data_port::DataPort;
 use crate::ports::config_port::ConfigPort;
+use crate::domain::portfolio::EquityPoint;
+
+pub struct CachedBacktest {
+    pub equity_curve: Vec<EquityPoint>,
+}
+
+pub type BacktestCache = Arc<RwLock<HashMap<String, CachedBacktest>>>;
 
 pub struct AppState {
     pub data_port: Arc<dyn DataPort + Send + Sync>,
     pub config: Arc<dyn ConfigPort + Send + Sync>,
+    pub backtest_cache: BacktestCache,
 }
 
 pub async fn build_router(state: AppState) -> Router {
+    build_router_impl(state, false).await
+}
+
+pub async fn build_test_router(state: AppState) -> Router {
+    build_router_impl(state, true).await
+}
+
+async fn build_router_impl(state: AppState, skip_auth: bool) -> Router {
+    if skip_auth {
+        return Router::new()
+            .route("/", get(handlers::dashboard))
+            .route("/htmx.js", get(handlers::htmx_js))
+            .route("/backtest", get(handlers::backtest_form))
+            .route("/backtest/run", post(handlers::run_backtest))
+            .route("/report/{id}", get(handlers::view_report))
+            .route(
+                "/report/{id}/equity-chart",
+                get(handlers::equity_chart_svg),
+            )
+            .route(
+                "/report/{id}/drawdown-chart",
+                get(handlers::drawdown_chart_svg),
+            )
+            .route("/logout", post(handlers::logout))
+            .nest_service("/static", ServeDir::new("static"))
+            .fallback(handlers::not_found)
+            .with_state(Arc::new(state));
+    }
+    
     // Read auth config
     let username = state
         .config

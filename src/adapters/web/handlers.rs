@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, header},
     response::{IntoResponse, Redirect, Response},
     Form,
 };
@@ -20,6 +20,13 @@ use super::{AppState, WebError, auth};
 use super::templates::{render_page, render_page_with_nav, LoginTemplate};
 
 type AuthSession = axum_login::AuthSession<auth::Backend>;
+
+fn generate_report_id() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let id: u64 = rng.r#gen();
+    format!("{:016x}", id)
+}
 
 pub async fn dashboard(
     State(_state): State<Arc<AppState>>,
@@ -202,12 +209,14 @@ pub async fn run_backtest(
     let metrics = Metrics::compute(&result.portfolio, bt_config.risk_free_rate);
     let code_results = CodeResult::compute_per_code(&result.portfolio.closed_trades);
 
-    let equity_svg = crate::adapters::typst_report::chart_svg::generate_equity_svg(
-        &result.portfolio.equity_curve,
-    );
-    let drawdown_svg = crate::adapters::typst_report::chart_svg::generate_drawdown_svg(
-        &result.portfolio.equity_curve,
-    );
+    let report_id = generate_report_id();
+    {
+        let mut cache = state.backtest_cache.write().unwrap();
+        cache.insert(report_id.clone(), super::CachedBacktest {
+            equity_curve: result.portfolio.equity_curve.clone(),
+        });
+    }
+
     let monthly_returns = super::templates::compute_monthly_returns(
         &result.portfolio.equity_curve,
     );
@@ -224,18 +233,18 @@ pub async fn run_backtest(
         .collect();
 
     let template = super::templates::ReportTemplate {
+        report_id: &report_id,
         strategy: &strategy,
         metrics: &metrics,
         code_results: if code_results.is_empty() { None } else { Some(&code_results) },
-        equity_svg: &equity_svg,
-        drawdown_svg: &drawdown_svg,
+        equity_svg: None,
+        drawdown_svg: None,
         trades: &result.portfolio.closed_trades,
         skipped: &skipped,
         start_date,
         end_date,
         initial_capital,
         monthly_returns: &monthly_returns,
-
     };
 
     render_page(&template, "Report - Samtrader", &headers)
@@ -252,19 +261,33 @@ pub async fn view_report(
 }
 
 pub async fn equity_chart_svg(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Response, WebError> {
-    let _ = id;
-    Err(WebError::not_found("Report not found"))
+    let cache = state.backtest_cache.read().unwrap();
+    let cached = cache.get(&id).ok_or_else(|| WebError::not_found("Report not found"))?;
+    
+    let svg = crate::adapters::typst_report::chart_svg::generate_equity_svg(&cached.equity_curve);
+    
+    Ok((
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        svg,
+    ).into_response())
 }
 
 pub async fn drawdown_chart_svg(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Response, WebError> {
-    let _ = id;
-    Err(WebError::not_found("Report not found"))
+    let cache = state.backtest_cache.read().unwrap();
+    let cached = cache.get(&id).ok_or_else(|| WebError::not_found("Report not found"))?;
+    
+    let svg = crate::adapters::typst_report::chart_svg::generate_drawdown_svg(&cached.equity_curve);
+    
+    Ok((
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        svg,
+    ).into_response())
 }
 
 pub async fn not_found(headers: HeaderMap) -> WebError {
