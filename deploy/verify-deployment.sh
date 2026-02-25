@@ -3,7 +3,7 @@ set -euo pipefail
 
 HOST="${1:-192.168.56.10}"
 USER="${2:-vagrant}"
-KEY_FILE="${3:-deploy/.vagrant/machines/default/virtualbox/private_key}"
+KEY_FILE="${3:-.vagrant/machines/default/virtualbox/private_key}"
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $KEY_FILE"
 SSH_CMD="ssh $SSH_OPTS $USER@$HOST"

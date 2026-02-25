@@ -2,3 +2,4 @@
 config.ini
 *.pdf
 *.typ
+deploy/.vagrant/
