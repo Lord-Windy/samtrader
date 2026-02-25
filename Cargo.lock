@@ -1505,6 +1505,7 @@ dependencies = [
  "proptest",
  "r2d2",
  "r2d2_sqlite",
+ "rand 0.8.5",
  "rusqlite",
  "serde",
  "tempfile",

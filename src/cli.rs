@@ -72,6 +72,13 @@ pub enum Command {
         #[arg(long)]
         sqlite: PathBuf,
     },
+    /// Start the web server
+    Serve {
+        #[arg(short, long)]
+        config: PathBuf,
+    },
+    /// Output an argon2 hash for a password
+    HashPassword,
 }
 
 pub fn run(cli: Cli) -> ExitCode {
@@ -104,6 +111,8 @@ pub fn run(cli: Cli) -> ExitCode {
             config,
         } => run_info(code.as_deref(), exchange.as_deref(), config.as_ref()),
         Command::Migrate { sqlite } => run_migrate(&sqlite),
+        Command::Serve { config } => run_serve(&config),
+        Command::HashPassword => run_hash_password(),
     }
 }
 
@@ -848,6 +857,117 @@ fn run_migrate(sqlite_path: &PathBuf) -> ExitCode {
     {
         let _ = sqlite_path;
         eprintln!("error: sqlite feature is required for migrate");
+        ExitCode::from(1)
+    }
+}
+
+fn run_serve(config_path: &PathBuf) -> ExitCode {
+    #[cfg(feature = "web")]
+    {
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
+        use crate::adapters::web::build_router;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+
+        eprintln!("Loading config from {}", config_path.display());
+        let config = match load_config(config_path) {
+            Ok(c) => c,
+            Err(code) => return code,
+        };
+
+        let data_port = match SqliteAdapter::from_config(&config) {
+            Ok(a) => Arc::new(a) as Arc<dyn crate::ports::data_port::DataPort + Send + Sync>,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        let addr: SocketAddr = config
+            .get_string("web", "listen")
+            .unwrap_or_else(|| "127.0.0.1:3000".to_string())
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:3000".parse().unwrap());
+
+        eprintln!("Starting web server on {}", addr);
+
+        let state = crate::adapters::web::AppState {
+            data_port,
+            config: Arc::new(config),
+        };
+
+        let router = build_router(state);
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("error: failed to create tokio runtime: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        rt.block_on(async {
+            let listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("error: failed to bind {addr}: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            if let Err(e) = axum::serve(listener, router).await {
+                eprintln!("error: server failed: {e}");
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        })
+    }
+
+    #[cfg(not(feature = "web"))]
+    {
+        let _ = config_path;
+        eprintln!("error: web feature is required for serve");
+        ExitCode::from(1)
+    }
+}
+
+fn run_hash_password() -> ExitCode {
+    #[cfg(feature = "web")]
+    {
+        use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version, password_hash::SaltString};
+        use std::io::{self, BufRead};
+        use rand::rngs::OsRng;
+
+        eprintln!("Enter password to hash:");
+        let stdin = io::stdin();
+        let password = match stdin.lock().lines().next() {
+            Some(Ok(line)) => line,
+            Some(Err(e)) => {
+                eprintln!("error: failed to read password: {e}");
+                return ExitCode::from(1);
+            }
+            None => {
+                eprintln!("error: no input provided");
+                return ExitCode::from(1);
+            }
+        };
+
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
+        let hash = match argon2.hash_password(password.as_bytes(), &salt) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("error: failed to hash password: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        println!("{}", hash);
+        ExitCode::SUCCESS
+    }
+
+    #[cfg(not(feature = "web"))]
+    {
+        eprintln!("error: web feature is required for hash-password");
         ExitCode::from(1)
     }
 }
