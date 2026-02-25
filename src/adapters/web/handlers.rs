@@ -17,7 +17,7 @@ use crate::domain::strategy::Strategy;
 use crate::domain::universe::{validate_universe, SkipReason};
 
 use super::{AppState, WebError};
-use super::templates::{render_page, LoginTemplate};
+use super::templates::{render_page, render_page_with_nav, LoginTemplate};
 
 pub async fn dashboard(
     State(_state): State<Arc<AppState>>,
@@ -26,7 +26,7 @@ pub async fn dashboard(
     let template = super::templates::DashboardTemplate {
         recent_backtests: &[],
     };
-    render_page(&template, "Dashboard - Samtrader", &headers)
+    render_page_with_nav(&template, "Dashboard - Samtrader", &headers, "/")
 }
 
 pub async fn login_form(
@@ -65,7 +65,7 @@ pub async fn backtest_form(
         default_start: "2020-01-01",
         default_end: "2024-12-31",
     };
-    render_page(&template, "New Backtest - Samtrader", &headers)
+    render_page_with_nav(&template, "New Backtest - Samtrader", &headers, "/backtest")
 }
 
 #[derive(Debug, serde::Deserialize)]

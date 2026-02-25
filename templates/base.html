@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
     <script src="/htmx.js"></script>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
@@ -35,12 +36,19 @@
 </head>
 <body>
     <nav>
-        <a href="/">Dashboard</a>
-        <a href="/backtest">New Backtest</a>
-        <a href="/logout">Logout</a>
+        <div class="container">
+            <a href="/" class="nav-brand">Samtrader</a>
+            <div class="nav-links">
+                <a href="/"{% if nav_path == "/" %} class="active"{% endif %}>Dashboard</a>
+                <a href="/backtest"{% if nav_path == "/backtest" %} class="active"{% endif %}>New Backtest</a>
+                <a href="/logout">Logout</a>
+            </div>
+        </div>
     </nav>
     <main>
-    {{ content|safe }}
+        <div class="container">
+            {{ content|safe }}
+        </div>
     </main>
     <footer>
         <p>Samtrader</p>

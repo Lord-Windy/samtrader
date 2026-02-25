@@ -22,6 +22,7 @@ use super::{is_htmx_request, WebError};
 pub struct BasePage<'a> {
     pub title: &'a str,
     pub content: &'a str,
+    pub nav_path: &'a str,
 }
 
 /// Render a template as an HTMX fragment or full page depending on headers.
@@ -29,6 +30,16 @@ pub fn render_page(
     template: &impl Template,
     title: &str,
     headers: &HeaderMap,
+) -> Result<Response, WebError> {
+    render_page_with_nav(template, title, headers, "")
+}
+
+/// Render a template as an HTMX fragment or full page, highlighting the given nav path.
+pub fn render_page_with_nav(
+    template: &impl Template,
+    title: &str,
+    headers: &HeaderMap,
+    nav_path: &str,
 ) -> Result<Response, WebError> {
     let content = template
         .render()
@@ -40,6 +51,7 @@ pub fn render_page(
         let page = BasePage {
             title,
             content: &content,
+            nav_path,
         };
         let html = page
             .render()
