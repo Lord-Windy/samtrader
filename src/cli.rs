@@ -207,11 +207,11 @@ fn run_backtest(
     let template_path = adapter.get_string("report", "template_path");
 
     // Stages 6-11: Data port dependent pipeline
-    #[cfg(feature = "postgres")]
+    #[cfg(feature = "sqlite")]
     {
-        use crate::adapters::postgres_adapter::PostgresAdapter;
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
 
-        let data_port = match PostgresAdapter::from_config(&adapter) {
+        let data_port = match SqliteAdapter::from_config(&adapter) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -230,10 +230,10 @@ fn run_backtest(
         )
     }
 
-    #[cfg(not(feature = "postgres"))]
+    #[cfg(not(feature = "sqlite"))]
     {
         let _ = (&strategy, &bt_config, &codes, &exchange, output_path, template_path);
-        eprintln!("error: postgres feature is required for backtest");
+        eprintln!("error: sqlite feature is required for backtest");
         ExitCode::from(1)
     }
 }
@@ -622,12 +622,12 @@ fn run_list_symbols(exchange: &str, config_path: Option<&PathBuf>) -> ExitCode {
         Err(code) => return code,
     };
 
-    #[cfg(feature = "postgres")]
+    #[cfg(feature = "sqlite")]
     {
-        use crate::adapters::postgres_adapter::PostgresAdapter;
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
         use crate::ports::data_port::DataPort;
 
-        let adapter = match PostgresAdapter::from_config(&config) {
+        let adapter = match SqliteAdapter::from_config(&config) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -654,10 +654,10 @@ fn run_list_symbols(exchange: &str, config_path: Option<&PathBuf>) -> ExitCode {
         ExitCode::SUCCESS
     }
 
-    #[cfg(not(feature = "postgres"))]
+    #[cfg(not(feature = "sqlite"))]
     {
         let _ = config;
-        eprintln!("error: postgres feature is required for list-symbols");
+        eprintln!("error: sqlite feature is required for list-symbols");
         ExitCode::from(1)
     }
 }
@@ -766,12 +766,12 @@ fn run_info(code: Option<&str>, exchange: Option<&str>, config_path: Option<&Pat
         },
     };
 
-    #[cfg(feature = "postgres")]
+    #[cfg(feature = "sqlite")]
     {
-        use crate::adapters::postgres_adapter::PostgresAdapter;
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
         use crate::ports::data_port::DataPort;
 
-        let adapter = match PostgresAdapter::from_config(&config) {
+        let adapter = match SqliteAdapter::from_config(&config) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -798,10 +798,10 @@ fn run_info(code: Option<&str>, exchange: Option<&str>, config_path: Option<&Pat
         ExitCode::SUCCESS
     }
 
-    #[cfg(not(feature = "postgres"))]
+    #[cfg(not(feature = "sqlite"))]
     {
         let _ = (codes, exchange);
-        eprintln!("error: postgres feature is required for info");
+        eprintln!("error: sqlite feature is required for info");
         ExitCode::from(1)
     }
 }
