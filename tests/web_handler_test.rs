@@ -56,12 +56,13 @@ impl ConfigPort for MockConfigPort {
 fn create_test_app() -> Router {
     let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
     let data_port = MockDataPort::new().with_bars("BHP", bars);
-    
+
     let state = AppState {
         data_port: Arc::new(data_port),
         config: Arc::new(MockConfigPort),
+        backtest_cache: samtrader::adapters::web::new_backtest_cache(),
     };
-    
+
     build_test_router(state)
 }
 
@@ -70,12 +71,13 @@ fn create_test_app_with_data(codes: &[(&str, Vec<OhlcvBar>)]) -> Router {
     for (code, bars) in codes {
         port = port.with_bars(code, bars.clone());
     }
-    
+
     let state = AppState {
         data_port: Arc::new(port),
         config: Arc::new(MockConfigPort),
+        backtest_cache: samtrader::adapters::web::new_backtest_cache(),
     };
-    
+
     build_test_router(state)
 }
 
@@ -249,7 +251,9 @@ mod backtest_submission_tests {
         let html = String::from_utf8_lossy(&body);
         
         assert!(html.contains("Equity Chart"));
-        assert!(html.contains("<svg"));
+        assert!(html.contains("hx-get"));
+        assert!(html.contains("/equity-chart"));
+        assert!(html.contains("hx-trigger=\"load\""));
     }
 
     #[tokio::test]
@@ -263,6 +267,9 @@ mod backtest_submission_tests {
         let html = String::from_utf8_lossy(&body);
         
         assert!(html.contains("Drawdown Chart"));
+        assert!(html.contains("hx-get"));
+        assert!(html.contains("/drawdown-chart"));
+        assert!(html.contains("hx-trigger=\"load\""));
     }
 
     #[tokio::test]

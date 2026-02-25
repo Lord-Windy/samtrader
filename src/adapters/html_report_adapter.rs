@@ -21,11 +21,12 @@ use crate::adapters::web::templates::{compute_monthly_returns, MonthlyReturnRow}
 #[derive(Template)]
 #[template(path = "report.html")]
 struct ReportTemplate<'a> {
+    report_id: &'a str,
     strategy: &'a Strategy,
     metrics: &'a Metrics,
     code_results: Option<&'a [crate::domain::metrics::CodeResult]>,
-    equity_svg: String,
-    drawdown_svg: String,
+    equity_svg: Option<String>,
+    drawdown_svg: Option<String>,
     trades: &'a [crate::domain::position::ClosedTrade],
     skipped: Vec<SkippedCode>,
     start_date: chrono::NaiveDate,
@@ -87,11 +88,12 @@ impl ReportPort for HtmlReportAdapter {
         let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
 
         let template = ReportTemplate {
+            report_id: "",
             strategy,
             metrics: &metrics,
             code_results: None,
-            equity_svg,
-            drawdown_svg,
+            equity_svg: Some(equity_svg),
+            drawdown_svg: Some(drawdown_svg),
             trades: &result.portfolio.closed_trades,
             skipped: Vec::new(),
             start_date,
@@ -152,11 +154,12 @@ impl ReportPort for HtmlReportAdapter {
         let monthly_returns = compute_monthly_returns(&result.aggregate.portfolio.equity_curve);
 
         let template = ReportTemplate {
+            report_id: "",
             strategy,
             metrics: &metrics,
             code_results: Some(&code_results),
-            equity_svg,
-            drawdown_svg,
+            equity_svg: Some(equity_svg),
+            drawdown_svg: Some(drawdown_svg),
             trades: &result.aggregate.portfolio.closed_trades,
             skipped: Vec::new(),
             start_date,

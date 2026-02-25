@@ -18,16 +18,80 @@ use axum::{
 };
 use axum_login::{login_required, AuthManagerLayerBuilder};
 use axum_login::tower_sessions::{Expiry, SessionManagerLayer, cookie::Key};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use tower_http::services::ServeDir;
 use tower_sessions_rusqlite_store::RusqliteStore;
 
 use crate::ports::data_port::DataPort;
 use crate::ports::config_port::ConfigPort;
+use crate::domain::portfolio::EquityPoint;
+
+const BACKTEST_CACHE_MAX: usize = 32;
+
+pub struct CachedBacktest {
+    pub equity_curve: Vec<EquityPoint>,
+    pub created_at: std::time::Instant,
+}
+
+pub struct BacktestCacheInner {
+    entries: HashMap<String, CachedBacktest>,
+}
+
+impl BacktestCacheInner {
+    pub fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&CachedBacktest> {
+        self.entries.get(key)
+    }
+
+    pub fn insert(&mut self, key: String, value: CachedBacktest) {
+        if self.entries.len() >= BACKTEST_CACHE_MAX {
+            // Evict oldest entry
+            if let Some(oldest_key) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, v)| v.created_at)
+                .map(|(k, _)| k.clone())
+            {
+                self.entries.remove(&oldest_key);
+            }
+        }
+        self.entries.insert(key, value);
+    }
+}
+
+pub type BacktestCache = Arc<RwLock<BacktestCacheInner>>;
+
+pub fn new_backtest_cache() -> BacktestCache {
+    Arc::new(RwLock::new(BacktestCacheInner::new()))
+}
 
 pub struct AppState {
     pub data_port: Arc<dyn DataPort + Send + Sync>,
     pub config: Arc<dyn ConfigPort + Send + Sync>,
+    pub backtest_cache: BacktestCache,
+}
+
+/// Shared route definitions used by both production and test routers.
+fn app_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/", get(handlers::dashboard))
+        .route("/htmx.js", get(handlers::htmx_js))
+        .route("/backtest", get(handlers::backtest_form))
+        .route("/backtest/run", post(handlers::run_backtest))
+        .route("/report/{id}", get(handlers::view_report))
+        .route(
+            "/report/{id}/equity-chart",
+            get(handlers::equity_chart_svg),
+        )
+        .route(
+            "/report/{id}/drawdown-chart",
+            get(handlers::drawdown_chart_svg),
+        )
+        .route("/logout", post(handlers::logout))
 }
 
 pub async fn build_router(state: AppState) -> Router {
@@ -75,35 +139,11 @@ pub async fn build_router(state: AppState) -> Router {
 
     app_routes()
         .route_layer(login_required!(auth::Backend, login_url = "/login"))
-        // Public routes
         .route("/login", get(handlers::login_form).post(handlers::login))
         .nest_service("/static", ServeDir::new("static"))
         .fallback(handlers::not_found)
         .layer(auth_layer)
         .with_state(Arc::new(state))
-}
-
-/// Shared route definitions used by both production and test routers.
-fn app_routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/", get(handlers::dashboard))
-        .route("/htmx.js", get(handlers::htmx_js))
-        .route("/backtest", get(handlers::backtest_form))
-        .route("/backtest/run", post(handlers::run_backtest))
-        .route("/report/{id}", get(handlers::view_report))
-        .route(
-            "/report/{id}/equity-chart",
-            get(handlers::equity_chart_svg),
-        )
-        .route(
-            "/report/{id}/drawdown-chart",
-            get(handlers::drawdown_chart_svg),
-        )
-        .route("/logout", post(handlers::logout))
-}
-
-fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
-    headers.get("HX-Request").is_some()
 }
 
 pub fn build_test_router(state: AppState) -> Router {
@@ -112,4 +152,8 @@ pub fn build_test_router(state: AppState) -> Router {
         .nest_service("/static", ServeDir::new("static"))
         .fallback(handlers::not_found)
         .with_state(Arc::new(state))
+}
+
+fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
+    headers.get("HX-Request").is_some()
 }

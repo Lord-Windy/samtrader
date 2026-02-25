@@ -83,11 +83,12 @@ pub struct BacktestFormTemplate<'a> {
 #[derive(Template)]
 #[template(path = "report.html")]
 pub struct ReportTemplate<'a> {
+    pub report_id: &'a str,
     pub strategy: &'a Strategy,
     pub metrics: &'a Metrics,
     pub code_results: Option<&'a [CodeResult]>,
-    pub equity_svg: &'a str,
-    pub drawdown_svg: &'a str,
+    pub equity_svg: Option<&'a str>,
+    pub drawdown_svg: Option<&'a str>,
     pub trades: &'a [ClosedTrade],
     pub skipped: &'a [SkippedCode<'a>],
     pub start_date: NaiveDate,
