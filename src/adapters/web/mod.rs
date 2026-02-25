@@ -101,3 +101,25 @@ pub async fn build_router(state: AppState) -> Router {
 fn is_htmx_request(headers: &axum::http::HeaderMap) -> bool {
     headers.get("HX-Request").is_some()
 }
+
+pub fn build_test_router(state: AppState) -> Router {
+    Router::new()
+        .route("/", get(handlers::dashboard))
+        .route("/htmx.js", get(handlers::htmx_js))
+        .route("/backtest", get(handlers::backtest_form))
+        .route("/backtest/run", post(handlers::run_backtest))
+        .route("/report/{id}", get(handlers::view_report))
+        .route(
+            "/report/{id}/equity-chart",
+            get(handlers::equity_chart_svg),
+        )
+        .route(
+            "/report/{id}/drawdown-chart",
+            get(handlers::drawdown_chart_svg),
+        )
+        .route("/logout", post(handlers::logout))
+        .route("/login", get(handlers::login_form).post(handlers::login))
+        .nest_service("/static", ServeDir::new("static"))
+        .fallback(handlers::not_found)
+        .with_state(Arc::new(state))
+}
