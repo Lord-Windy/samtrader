@@ -36,6 +36,9 @@
     <nav>
         <a href="/">Dashboard</a>
         <a href="/backtest">New Backtest</a>
+        <form method="post" action="/logout" style="display:inline; float:right; margin:0">
+            <button type="submit" style="background:none; border:none; color:#0066cc; cursor:pointer; font:inherit; padding:0; text-decoration:none">Logout</button>
+        </form>
     </nav>
     <main>
     {{ content|safe }}

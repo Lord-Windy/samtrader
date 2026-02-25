@@ -16,8 +16,10 @@ use crate::domain::rule::extract_indicators;
 use crate::domain::strategy::Strategy;
 use crate::domain::universe::{validate_universe, SkipReason};
 
-use super::{AppState, WebError};
+use super::{AppState, WebError, auth};
 use super::templates::{render_page, LoginTemplate};
+
+type AuthSession = axum_login::AuthSession<auth::Backend>;
 
 pub async fn dashboard(
     State(_state): State<Arc<AppState>>,
@@ -44,14 +46,37 @@ pub struct LoginFormData {
 }
 
 pub async fn login(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Form(_form): Form<LoginFormData>,
+    mut auth_session: AuthSession,
+    headers: HeaderMap,
+    Form(form): Form<LoginFormData>,
 ) -> Result<Response, WebError> {
-    Ok(Redirect::to("/").into_response())
+    let creds = auth::Credentials {
+        username: form.username,
+        password: form.password,
+    };
+    match auth_session.authenticate(creds).await {
+        Ok(Some(user)) => {
+            auth_session
+                .login(&user)
+                .await
+                .map_err(|e| WebError::internal(e.to_string()))?;
+            Ok(Redirect::to("/").into_response())
+        }
+        Ok(None) => {
+            let template = LoginTemplate {
+                error: Some("Invalid username or password"),
+            };
+            render_page(&template, "Login - Samtrader", &headers)
+        }
+        Err(e) => Err(WebError::internal(e.to_string())),
+    }
 }
 
-pub async fn logout() -> Result<Response, WebError> {
+pub async fn logout(mut auth_session: AuthSession) -> Result<Response, WebError> {
+    auth_session
+        .logout()
+        .await
+        .map_err(|e| WebError::internal(e.to_string()))?;
     Ok(Redirect::to("/login").into_response())
 }
 
