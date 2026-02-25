@@ -2,6 +2,8 @@
 
 pub mod csv_adapter;
 pub mod file_config_adapter;
+#[cfg(feature = "web")]
+pub mod html_report_adapter;
 #[cfg(feature = "postgres")]
 pub mod postgres_adapter;
 #[cfg(feature = "sqlite")]
