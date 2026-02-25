@@ -95,13 +95,12 @@
                 <h3>Trade Log for {{ cr.code }}</h3>
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Entry Date</th><th>Exit Date</th><th>Qty</th><th>Entry Price</th><th>Exit Price</th><th>PnL</th></tr>
+                        <tr><th>Entry Date</th><th>Exit Date</th><th>Qty</th><th>Entry Price</th><th>Exit Price</th><th>PnL</th></tr>
                     </thead>
                     <tbody>
                         {% for trade in trades %}
                         {% if trade.code == cr.code %}
                         <tr>
-                            <td>{{ loop.index }}</td>
                             <td>{{ trade.entry_date }}</td>
                             <td>{{ trade.exit_date }}</td>
                             <td>{{ trade.quantity }}</td>
