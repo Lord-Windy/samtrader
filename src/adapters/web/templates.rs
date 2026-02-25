@@ -105,6 +105,30 @@ pub struct MonthlyReturnRow {
     pub months: Vec<Option<f64>>,
 }
 
+impl MonthlyReturnRow {
+    pub fn get_class(&self, month: usize) -> &'static str {
+        match self.months.get(month).and_then(|m| *m) {
+            Some(v) if v > 0.0 => "positive",
+            Some(v) if v < 0.0 => "negative",
+            _ => "neutral",
+        }
+    }
+
+    pub fn get_value(&self, month: usize) -> Option<f64> {
+        self.months.get(month).and_then(|m| *m)
+    }
+}
+
+impl MonthlyReturnRow {
+    pub fn class_for(&self, month: &usize) -> &'static str {
+        self.get_class(*month)
+    }
+
+    pub fn value_at(&self, month: &usize) -> Option<f64> {
+        self.get_value(*month)
+    }
+}
+
 pub fn compute_monthly_returns(equity_curve: &[EquityPoint]) -> Vec<MonthlyReturnRow> {
     if equity_curve.len() < 2 {
         return Vec::new();
@@ -163,10 +187,7 @@ mod tests {
 
     #[test]
     fn single_month_positive_return() {
-        let curve = vec![
-            equity("2024-01-01", 100.0),
-            equity("2024-01-02", 110.0),
-        ];
+        let curve = vec![equity("2024-01-01", 100.0), equity("2024-01-02", 110.0)];
         let rows = compute_monthly_returns(&curve);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].year, 2024);
@@ -209,10 +230,7 @@ mod tests {
 
     #[test]
     fn negative_return() {
-        let curve = vec![
-            equity("2024-06-01", 100.0),
-            equity("2024-06-30", 90.0),
-        ];
+        let curve = vec![equity("2024-06-01", 100.0), equity("2024-06-30", 90.0)];
         let rows = compute_monthly_returns(&curve);
         let jun = rows[0].months[5].unwrap();
         assert!(jun < 0.0, "expected negative return, got {jun}");

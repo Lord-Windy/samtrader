@@ -5,7 +5,7 @@
 
 mod error;
 mod handlers;
-mod templates;
+pub mod templates;
 
 pub use error::WebError;
 pub use handlers::*;
@@ -29,6 +29,7 @@ pub struct AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(handlers::dashboard))
+        .route("/htmx.js", get(handlers::htmx_js))
         .route("/login", get(handlers::login_form).post(handlers::login))
         .route("/logout", post(handlers::logout))
         .route("/backtest", get(handlers::backtest_form))

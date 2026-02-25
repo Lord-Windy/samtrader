@@ -13,6 +13,8 @@ use crate::ports::report_port::ReportPort;
 
 use askama::Template;
 
+use crate::adapters::web::templates::{compute_monthly_returns, MonthlyReturnRow};
+
 #[derive(Template)]
 #[template(path = "report.html")]
 struct ReportTemplate<'a> {
@@ -26,6 +28,7 @@ struct ReportTemplate<'a> {
     start_date: chrono::NaiveDate,
     end_date: chrono::NaiveDate,
     initial_capital: f64,
+    monthly_returns: Vec<MonthlyReturnRow>,
 }
 
 struct SkippedCode {
@@ -76,6 +79,7 @@ impl ReportPort for HtmlReportAdapter {
             .map(|p| p.date)
             .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap());
         let initial_capital = result.portfolio.initial_capital;
+        let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
 
         let template = ReportTemplate {
             strategy,
@@ -88,6 +92,7 @@ impl ReportPort for HtmlReportAdapter {
             start_date,
             end_date,
             initial_capital,
+            monthly_returns,
         };
 
         let html = template
@@ -133,6 +138,7 @@ impl ReportPort for HtmlReportAdapter {
             .map(|p| p.date)
             .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap());
         let initial_capital = result.aggregate.portfolio.initial_capital;
+        let monthly_returns = compute_monthly_returns(&result.aggregate.portfolio.equity_curve);
 
         let code_results = crate::domain::metrics::CodeResult::compute_per_code(
             &result.aggregate.portfolio.closed_trades,
@@ -149,6 +155,7 @@ impl ReportPort for HtmlReportAdapter {
             start_date,
             end_date,
             initial_capital,
+            monthly_returns,
         };
 
         let html = template

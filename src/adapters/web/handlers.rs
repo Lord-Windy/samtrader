@@ -245,3 +245,12 @@ pub async fn drawdown_chart_svg(
 pub async fn not_found(headers: HeaderMap) -> WebError {
     WebError::not_found("Page not found").with_headers(headers)
 }
+
+static HTMX_JS: &str = include_str!("static/htmx.min.js");
+
+pub async fn htmx_js() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/javascript")],
+        HTMX_JS,
+    )
+}
