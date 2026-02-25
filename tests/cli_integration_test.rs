@@ -27,8 +27,8 @@ fn write_temp_ini(content: &str) -> tempfile::NamedTempFile {
 }
 
 const VALID_INI: &str = r#"
-[database]
-conninfo = host=localhost dbname=samtrader
+[sqlite]
+path = /tmp/samtrader_test.db
 
 [backtest]
 initial_capital = 100000.0
@@ -404,8 +404,8 @@ mod dry_run {
     #[test]
     fn dry_run_invalid_strategy_rule_fails() {
         let ini = r#"
-[database]
-conninfo = host=localhost dbname=samtrader
+[sqlite]
+path = /tmp/samtrader_test.db
 
 [backtest]
 initial_capital = 100000.0

@@ -7,7 +7,7 @@ use crate::ports::config_port::ConfigPort;
 use chrono::NaiveDate;
 
 pub fn validate_backtest_config(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
-    validate_conninfo(config)?;
+    validate_data_source(config)?;
     validate_initial_capital(config)?;
     validate_commission(config)?;
     validate_slippage(config)?;
@@ -27,13 +27,12 @@ pub fn validate_strategy_config(config: &dyn ConfigPort) -> Result<(), Samtrader
     Ok(())
 }
 
-fn validate_conninfo(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
-    match config.get_string("database", "conninfo") {
+fn validate_data_source(config: &dyn ConfigPort) -> Result<(), SamtraderError> {
+    match config.get_string("sqlite", "path") {
         Some(s) if !s.trim().is_empty() => Ok(()),
-        _ => Err(SamtraderError::ConfigInvalid {
-            section: "database".to_string(),
-            key: "conninfo".to_string(),
-            reason: "database connection string is required".to_string(),
+        _ => Err(SamtraderError::ConfigMissing {
+            section: "sqlite".to_string(),
+            key: "path".to_string(),
         }),
     }
 }
@@ -228,7 +227,7 @@ mod tests {
     use super::*;
     use crate::adapters::file_config_adapter::FileConfigAdapter;
 
-    const DB: &str = "[database]\nconninfo = host=localhost dbname=test\n";
+    const DB: &str = "[sqlite]\npath = /tmp/test.db\n";
 
     fn make_config(content: &str) -> FileConfigAdapter {
         FileConfigAdapter::from_string(content).unwrap()
@@ -242,8 +241,8 @@ mod tests {
     fn valid_backtest_config_passes() {
         let config = make_config(
             r#"
-[database]
-conninfo = host=localhost dbname=test
+[sqlite]
+path = /tmp/test.db
 
 [backtest]
 initial_capital = 100000.0
@@ -261,17 +260,17 @@ code = CBA
     }
 
     #[test]
-    fn missing_conninfo_fails() {
+    fn missing_sqlite_path_fails() {
         let config = make_config("[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
-        assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "conninfo"));
+        assert!(matches!(err, SamtraderError::ConfigMissing { key, .. } if key == "path"));
     }
 
     #[test]
-    fn empty_conninfo_fails() {
-        let config = make_config("[database]\nconninfo = \n[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
+    fn empty_sqlite_path_fails() {
+        let config = make_config("[sqlite]\npath = \n[backtest]\ninitial_capital = 100\nstart_date = 2020-01-01\nend_date = 2024-12-31\nexchange = ASX\ncode = CBA\n");
         let err = validate_backtest_config(&config).unwrap_err();
-        assert!(matches!(err, SamtraderError::ConfigInvalid { key, .. } if key == "conninfo"));
+        assert!(matches!(err, SamtraderError::ConfigMissing { key, .. } if key == "path"));
     }
 
     #[test]
