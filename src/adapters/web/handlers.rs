@@ -210,10 +210,27 @@ pub async fn run_backtest(
     let code_results = CodeResult::compute_per_code(&result.portfolio.closed_trades);
 
     let report_id = generate_report_id();
+
+    let skipped_owned: Vec<(String, String)> = validation.skipped
+        .iter()
+        .map(|s| (s.code.clone(), match &s.reason {
+            SkipReason::NoData => "No data available".to_string(),
+            SkipReason::InsufficientBars { .. } => "Insufficient bars".to_string(),
+        }))
+        .collect();
+
     {
         let mut cache = state.backtest_cache.write().unwrap();
         cache.insert(report_id.clone(), super::CachedBacktest {
             equity_curve: result.portfolio.equity_curve.clone(),
+            strategy: strategy.clone(),
+            metrics: metrics.clone(),
+            code_results: code_results.clone(),
+            trades: result.portfolio.closed_trades.clone(),
+            skipped: skipped_owned.clone(),
+            start_date,
+            end_date,
+            initial_capital,
             created_at: std::time::Instant::now(),
         });
     }
@@ -222,14 +239,11 @@ pub async fn run_backtest(
         &result.portfolio.equity_curve,
     );
 
-    let skipped: Vec<super::templates::SkippedCode> = validation.skipped
+    let skipped: Vec<super::templates::SkippedCode> = skipped_owned
         .iter()
-        .map(|s| super::templates::SkippedCode {
-            code: &s.code,
-            reason: match &s.reason {
-                SkipReason::NoData => "No data available",
-                SkipReason::InsufficientBars { .. } => "Insufficient bars",
-            },
+        .map(|(code, reason)| super::templates::SkippedCode {
+            code: code.as_str(),
+            reason: reason.as_str(),
         })
         .collect();
 
@@ -252,13 +266,39 @@ pub async fn run_backtest(
 }
 
 pub async fn view_report(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, WebError> {
-    let _ = id;
-    let template = super::templates::ReportPlaceholderTemplate;
-    render_page(&template, "Report - Samtrader", &headers)
+    let cache = state.backtest_cache.read().unwrap();
+    let cached = cache.get(&id)
+        .ok_or_else(|| WebError::not_found("Report not found"))?;
+
+    let monthly_returns = super::templates::compute_monthly_returns(&cached.equity_curve);
+    let skipped: Vec<super::templates::SkippedCode> = cached.skipped
+        .iter()
+        .map(|(code, reason)| super::templates::SkippedCode {
+            code: code.as_str(),
+            reason: reason.as_str(),
+        })
+        .collect();
+
+    let template = super::templates::ReportTemplate {
+        report_id: &id,
+        strategy: &cached.strategy,
+        metrics: &cached.metrics,
+        code_results: if cached.code_results.is_empty() { None } else { Some(&cached.code_results) },
+        equity_svg: None,
+        drawdown_svg: None,
+        trades: &cached.trades,
+        skipped: &skipped,
+        start_date: cached.start_date,
+        end_date: cached.end_date,
+        initial_capital: cached.initial_capital,
+        monthly_returns: &monthly_returns,
+    };
+
+    render_page_with_nav(&template, "Report - Samtrader", &headers, "")
 }
 
 pub async fn equity_chart_svg(

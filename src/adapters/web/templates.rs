@@ -109,10 +109,6 @@ pub struct ErrorTemplate<'a> {
     pub status: u16,
 }
 
-#[derive(Template)]
-#[template(path = "report_placeholder.html")]
-pub struct ReportPlaceholderTemplate;
-
 pub struct MonthlyReturnRow {
     pub year: i32,
     pub months: Vec<Option<f64>>,

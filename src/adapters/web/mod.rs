@@ -25,12 +25,24 @@ use tower_sessions_rusqlite_store::RusqliteStore;
 
 use crate::ports::data_port::DataPort;
 use crate::ports::config_port::ConfigPort;
+use crate::domain::metrics::{CodeResult, Metrics};
 use crate::domain::portfolio::EquityPoint;
+use crate::domain::position::ClosedTrade;
+use crate::domain::strategy::Strategy;
+use chrono::NaiveDate;
 
 const BACKTEST_CACHE_MAX: usize = 32;
 
 pub struct CachedBacktest {
     pub equity_curve: Vec<EquityPoint>,
+    pub strategy: Strategy,
+    pub metrics: Metrics,
+    pub code_results: Vec<CodeResult>,
+    pub trades: Vec<ClosedTrade>,
+    pub skipped: Vec<(String, String)>,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub initial_capital: f64,
     pub created_at: std::time::Instant,
 }
 

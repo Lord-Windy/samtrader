@@ -489,6 +489,180 @@ mod error_handling_tests {
     }
 }
 
+mod view_report_tests {
+    use super::*;
+
+    fn backtest_form_data() -> &'static str {
+        "codes=BHP&start_date=2024-01-01&end_date=2024-01-31&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1"
+    }
+
+    fn create_shared_state() -> AppState {
+        let bars = generate_bars("BHP", "2024-01-01", 50, 100.0);
+        let data_port = MockDataPort::new().with_bars("BHP", bars);
+        AppState {
+            data_port: Arc::new(data_port),
+            config: Arc::new(MockConfigPort),
+            backtest_cache: samtrader::adapters::web::new_backtest_cache(),
+        }
+    }
+
+    /// Extract the report ID from HTML containing hx-get="/report/XXX/equity-chart".
+    fn extract_report_id(html: &str) -> String {
+        let prefix = "/report/";
+        let suffix = "/equity-chart";
+        let start = html.find(prefix).expect("no /report/ in html") + prefix.len();
+        let rest = &html[start..];
+        let end = rest.find(suffix).expect("no /equity-chart in html");
+        rest[..end].to_string()
+    }
+
+    /// Run a backtest and return the report ID from the response.
+    async fn run_backtest_and_get_id(state: &AppState) -> String {
+        let app = build_test_router(AppState {
+            data_port: state.data_port.clone(),
+            config: state.config.clone(),
+            backtest_cache: state.backtest_cache.clone(),
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/backtest/run")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(backtest_form_data()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        extract_report_id(&html)
+    }
+
+    fn build_app_from(state: &AppState) -> Router {
+        build_test_router(AppState {
+            data_port: state.data_port.clone(),
+            config: state.config.clone(),
+            backtest_cache: state.backtest_cache.clone(),
+        })
+    }
+
+    #[tokio::test]
+    async fn view_report_with_unknown_id_returns_404() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/report/nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn view_report_with_cached_data_returns_ok() {
+        let state = create_shared_state();
+        let report_id = run_backtest_and_get_id(&state).await;
+
+        let app = build_app_from(&state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/report/{report_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("Backtest Report"));
+    }
+
+    #[tokio::test]
+    async fn view_report_contains_strategy_and_metrics() {
+        let state = create_shared_state();
+        let report_id = run_backtest_and_get_id(&state).await;
+
+        let app = build_app_from(&state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/report/{report_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(html.contains("Strategy Summary"), "missing Strategy Summary");
+        assert!(html.contains("Total Return"), "missing Total Return");
+        assert!(html.contains("Equity Chart"), "missing Equity Chart");
+    }
+
+    #[tokio::test]
+    async fn view_report_htmx_returns_fragment() {
+        let state = create_shared_state();
+        let report_id = run_backtest_and_get_id(&state).await;
+
+        let app = build_app_from(&state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/report/{report_id}"))
+                    .header("HX-Request", "true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(!html.contains("<!DOCTYPE html>"), "HTMX fragment should not have DOCTYPE");
+        assert!(html.contains("<div id=\"report-content\">"));
+    }
+
+    #[tokio::test]
+    async fn view_report_has_lazy_load_chart_urls() {
+        let state = create_shared_state();
+        let report_id = run_backtest_and_get_id(&state).await;
+
+        let app = build_app_from(&state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/report/{report_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        let equity_url = format!("/report/{report_id}/equity-chart");
+        let drawdown_url = format!("/report/{report_id}/drawdown-chart");
+        assert!(html.contains(&equity_url), "missing equity chart URL");
+        assert!(html.contains(&drawdown_url), "missing drawdown chart URL");
+    }
+}
+
 mod multi_code_backtest_tests {
     use super::*;
 
