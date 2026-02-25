@@ -85,10 +85,12 @@ pub async fn run_backtest(
     headers: HeaderMap,
     Form(form): Form<BacktestFormData>,
 ) -> Result<Response, WebError> {
+    let err = |e: WebError| e.with_headers(headers.clone());
+
     let start_date = chrono::NaiveDate::parse_from_str(&form.start_date, "%Y-%m-%d")
-        .map_err(|_| WebError::bad_request("Invalid start date format"))?;
+        .map_err(|_| err(WebError::bad_request("Invalid start date format")))?;
     let end_date = chrono::NaiveDate::parse_from_str(&form.end_date, "%Y-%m-%d")
-        .map_err(|_| WebError::bad_request("Invalid end date format"))?;
+        .map_err(|_| err(WebError::bad_request("Invalid end date format")))?;
 
     let codes: Vec<String> = form.codes
         .split(',')
@@ -97,20 +99,20 @@ pub async fn run_backtest(
         .collect();
 
     if codes.is_empty() {
-        return Err(WebError::bad_request("No codes specified"));
+        return Err(err(WebError::bad_request("No codes specified")));
     }
 
     let initial_capital: f64 = form.initial_capital.parse()
-        .map_err(|_| WebError::bad_request("Invalid initial capital"))?;
+        .map_err(|_| err(WebError::bad_request("Invalid initial capital")))?;
     let position_size: f64 = form.position_size.parse()
-        .map_err(|_| WebError::bad_request("Invalid position size"))?;
+        .map_err(|_| err(WebError::bad_request("Invalid position size")))?;
     let max_positions: usize = form.max_positions.parse()
-        .map_err(|_| WebError::bad_request("Invalid max positions"))?;
+        .map_err(|_| err(WebError::bad_request("Invalid max positions")))?;
 
     let entry_long = crate::domain::rule_parser::parse(&form.entry_rule)
-        .map_err(|e| WebError::bad_request(format!("Entry rule parse error: {}", e)))?;
+        .map_err(|e| err(WebError::bad_request(format!("Entry rule parse error: {}", e))))?;
     let exit_long = crate::domain::rule_parser::parse(&form.exit_rule)
-        .map_err(|e| WebError::bad_request(format!("Exit rule parse error: {}", e)))?;
+        .map_err(|e| err(WebError::bad_request(format!("Exit rule parse error: {}", e))))?;
 
     let strategy = Strategy {
         name: "Web Backtest".to_string(),
@@ -142,7 +144,7 @@ pub async fn run_backtest(
         "ASX",
         start_date,
         end_date,
-    ).map_err(|e| WebError::bad_request(e.to_string()))?;
+    ).map_err(|e| err(WebError::bad_request(e.to_string())))?;
 
     let valid_codes = &validation.universe.codes;
     let indicator_types = extract_indicators(&strategy.entry_long)
@@ -158,7 +160,7 @@ pub async fn run_backtest(
             "ASX",
             start_date,
             end_date,
-        ).map_err(|e| WebError::internal(e.to_string()))?;
+        ).map_err(|e| err(WebError::internal(e.to_string())))?;
 
         let indicators = compute_indicators(&ohlcv, &indicator_types);
         let mut cd = CodeData::new(code.to_string(), "ASX".to_string(), ohlcv);
@@ -167,7 +169,7 @@ pub async fn run_backtest(
     }
 
     if code_data_vec.is_empty() {
-        return Err(WebError::bad_request("No valid codes with data"));
+        return Err(err(WebError::bad_request("No valid codes with data")));
     }
 
     let timeline = build_unified_timeline(&code_data_vec);
@@ -238,4 +240,8 @@ pub async fn drawdown_chart_svg(
 ) -> Result<Response, WebError> {
     let _ = id;
     Err(WebError::not_found("Report not found"))
+}
+
+pub async fn not_found(headers: HeaderMap) -> WebError {
+    WebError::not_found("Page not found").with_headers(headers)
 }

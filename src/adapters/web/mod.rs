@@ -36,7 +36,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/report/{id}", get(handlers::view_report))
         .route("/report/{id}/equity-chart", get(handlers::equity_chart_svg))
         .route("/report/{id}/drawdown-chart", get(handlers::drawdown_chart_svg))
-        .fallback_service(ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new("static"))
+        .fallback(handlers::not_found)
         .with_state(Arc::new(state))
 }
 
