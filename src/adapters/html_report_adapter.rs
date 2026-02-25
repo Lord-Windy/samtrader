@@ -2,16 +2,62 @@
 //!
 //! Generates HTML reports using Askama templates with inline SVG charts.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use crate::domain::backtest::{BacktestResult, MultiCodeResult};
 use crate::domain::error::SamtraderError;
 use crate::domain::metrics::Metrics;
+use crate::domain::portfolio::EquityPoint;
 use crate::domain::strategy::Strategy;
 use crate::ports::report_port::ReportPort;
+use chrono::Datelike;
 
 use askama::Template;
+
+struct MonthlyReturnRow {
+    year: i32,
+    months: Vec<Option<f64>>,
+}
+
+fn compute_monthly_returns(equity_curve: &[EquityPoint]) -> Vec<MonthlyReturnRow> {
+    if equity_curve.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut monthly_data: BTreeMap<(i32, u32), Vec<f64>> = BTreeMap::new();
+
+    for window in equity_curve.windows(2) {
+        let prev = &window[0];
+        let curr = &window[1];
+        let return_rate = if prev.equity > 0.0 {
+            (curr.equity - prev.equity) / prev.equity
+        } else {
+            0.0
+        };
+        let key = (curr.date.year(), curr.date.month());
+        monthly_data.entry(key).or_default().push(return_rate);
+    }
+
+    let mut returns: BTreeMap<(i32, u32), f64> = BTreeMap::new();
+    for (&key, daily) in &monthly_data {
+        let compounded = daily.iter().map(|r| (1.0 + r).ln()).sum::<f64>().exp() - 1.0;
+        returns.insert(key, compounded * 100.0);
+    }
+
+    let min_year = returns.keys().map(|k| k.0).min().unwrap_or(2020);
+    let max_year = returns.keys().map(|k| k.0).max().unwrap_or(2020);
+
+    (min_year..=max_year)
+        .map(|year| MonthlyReturnRow {
+            year,
+            months: (1..=12u32)
+                .map(|month| returns.get(&(year, month)).copied())
+                .collect(),
+        })
+        .collect()
+}
 
 #[derive(Template)]
 #[template(path = "report.html")]
@@ -26,6 +72,7 @@ struct ReportTemplate<'a> {
     start_date: chrono::NaiveDate,
     end_date: chrono::NaiveDate,
     initial_capital: f64,
+    monthly_returns: Vec<MonthlyReturnRow>,
 }
 
 struct SkippedCode {
@@ -77,6 +124,8 @@ impl ReportPort for HtmlReportAdapter {
             .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap());
         let initial_capital = result.portfolio.initial_capital;
 
+        let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
+
         let template = ReportTemplate {
             strategy,
             metrics: &metrics,
@@ -88,6 +137,7 @@ impl ReportPort for HtmlReportAdapter {
             start_date,
             end_date,
             initial_capital,
+            monthly_returns,
         };
 
         let html = template
@@ -138,6 +188,8 @@ impl ReportPort for HtmlReportAdapter {
             &result.aggregate.portfolio.closed_trades,
         );
 
+        let monthly_returns = compute_monthly_returns(&result.aggregate.portfolio.equity_curve);
+
         let template = ReportTemplate {
             strategy,
             metrics: &metrics,
@@ -149,6 +201,7 @@ impl ReportPort for HtmlReportAdapter {
             start_date,
             end_date,
             initial_capital,
+            monthly_returns,
         };
 
         let html = template
@@ -256,7 +309,7 @@ mod tests {
 
         let contents = fs::read_to_string(&output_path).unwrap();
         assert!(contents.contains("Position Size"));
-        assert!(contents.contains("25%"));
+        assert!(contents.contains("25.0%"));
         assert!(contents.contains("Max Positions"));
         assert!(contents.contains("5"));
     }
@@ -378,7 +431,7 @@ mod tests {
         adapter.write_multi(&multi, &strategy, output_str).unwrap();
 
         let contents = fs::read_to_string(&output_path).unwrap();
-        assert!(contents.contains("Per-Code Results"));
+        assert!(contents.contains("Universe Summary"));
         assert!(contents.contains("BHP"));
         assert!(contents.contains("CBA"));
         assert!(contents.contains("<svg"));

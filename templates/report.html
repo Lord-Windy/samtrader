@@ -92,6 +92,27 @@
                     <tr><td>Largest Win</td><td class="positive">${{ "{:.0}"|format(cr.largest_win) }}</td></tr>
                     <tr><td>Largest Loss</td><td class="negative">-${{ "{:.0}"|format(cr.largest_loss.abs()) }}</td></tr>
                 </table>
+                <h3>Trade Log for {{ cr.code }}</h3>
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Entry Date</th><th>Exit Date</th><th>Qty</th><th>Entry Price</th><th>Exit Price</th><th>PnL</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for trade in trades %}
+                        {% if trade.code == cr.code %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ trade.entry_date }}</td>
+                            <td>{{ trade.exit_date }}</td>
+                            <td>{{ trade.quantity }}</td>
+                            <td>${{ "{:.2}"|format(trade.entry_price) }}</td>
+                            <td>${{ "{:.2}"|format(trade.exit_price) }}</td>
+                            <td class="{% if trade.pnl > 0.0 %}positive{% else if trade.pnl < 0.0 %}negative{% else %}neutral{% endif %}">${{ "{:.0}"|format(trade.pnl) }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
             </details>
         </section>
         {% endfor %}
@@ -136,7 +157,7 @@
                     <td><strong>{{ row.year }}</strong></td>
                     {% for cell in row.months %}
                         {% if let Some(pct) = cell %}
-                            <td class="{% if *pct > 0.0 %}positive{% else if *pct < 0.0 %}negative{% else %}neutral{% endif %}">{{ "{:.1}"|format(pct) }}%</td>
+                            <td class="{% if pct.is_sign_positive() %}positive{% else if pct.is_sign_negative() %}negative{% else %}neutral{% endif %}">{{ "{:.1}"|format(pct) }}%</td>
                         {% else %}
                             <td class="neutral">-</td>
                         {% endif %}
