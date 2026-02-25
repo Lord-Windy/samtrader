@@ -25,7 +25,13 @@ impl SqliteAdapter {
 
         let pool_size = config.get_int("sqlite", "pool_size", 4) as u32;
 
-        let manager = SqliteConnectionManager::file(&db_path);
+        let manager = SqliteConnectionManager::file(&db_path).with_init(|conn| {
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL;\
+                     PRAGMA busy_timeout=5000;\
+                     PRAGMA synchronous=NORMAL;",
+            )
+        });
         let pool =
             Pool::builder()
                 .max_size(pool_size)
@@ -38,7 +44,13 @@ impl SqliteAdapter {
     }
 
     pub fn in_memory() -> Result<Self, SamtraderError> {
-        let manager = SqliteConnectionManager::memory();
+        let manager = SqliteConnectionManager::memory().with_init(|conn| {
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL;\
+                     PRAGMA busy_timeout=5000;\
+                     PRAGMA synchronous=NORMAL;",
+            )
+        });
         let pool = Pool::builder()
             .max_size(1)
             .build(manager)
