@@ -67,6 +67,11 @@ pub enum Command {
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
+    /// Create SQLite database schema
+    Migrate {
+        #[arg(long)]
+        sqlite: PathBuf,
+    },
 }
 
 pub fn run(cli: Cli) -> ExitCode {
@@ -98,6 +103,7 @@ pub fn run(cli: Cli) -> ExitCode {
             exchange,
             config,
         } => run_info(code.as_deref(), exchange.as_deref(), config.as_ref()),
+        Command::Migrate { sqlite } => run_migrate(&sqlite),
     }
 }
 
@@ -812,4 +818,36 @@ pub fn resolve_codes(code_override: Option<&str>, config: &dyn ConfigPort) -> Ve
     }
 
     vec![]
+}
+
+fn run_migrate(sqlite_path: &PathBuf) -> ExitCode {
+    #[cfg(feature = "sqlite")]
+    {
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
+
+        eprintln!("Creating schema at {}", sqlite_path.display());
+
+        let adapter = match SqliteAdapter::from_path(&sqlite_path.display().to_string()) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return (&e).into();
+            }
+        };
+
+        if let Err(e) = adapter.initialize_schema() {
+            eprintln!("error: {e}");
+            return (&e).into();
+        }
+
+        eprintln!("Schema created successfully");
+        ExitCode::SUCCESS
+    }
+
+    #[cfg(not(feature = "sqlite"))]
+    {
+        let _ = sqlite_path;
+        eprintln!("error: sqlite feature is required for migrate");
+        ExitCode::from(1)
+    }
 }

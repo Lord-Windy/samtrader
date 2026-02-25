@@ -43,6 +43,18 @@ impl SqliteAdapter {
         Ok(Self { pool })
     }
 
+    pub fn from_path(db_path: &str) -> Result<Self, SamtraderError> {
+        let manager = SqliteConnectionManager::file(db_path);
+        let pool = Pool::builder()
+            .max_size(1)
+            .build(manager)
+            .map_err(|e: r2d2::Error| SamtraderError::Database {
+                reason: e.to_string(),
+            })?;
+
+        Ok(Self { pool })
+    }
+
     pub fn in_memory() -> Result<Self, SamtraderError> {
         let manager = SqliteConnectionManager::memory().with_init(|conn| {
             conn.execute_batch(
