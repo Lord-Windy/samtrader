@@ -938,14 +938,14 @@ fn run_hash_password() -> ExitCode {
         use rand::rngs::OsRng;
 
         let stdin = io::stdin();
-        let stdout = io::stdout();
+        let stderr = io::stderr();
 
         let password = {
-            let mut stdout_lock = stdout.lock();
-            let stdin_lock = stdin.lock();
+            let mut stderr_lock = stderr.lock();
+            let mut stdin_lock = stdin.lock();
 
-            write!(stdout_lock, "Enter password: ").ok();
-            stdout_lock.flush().ok();
+            write!(stderr_lock, "Enter password: ").ok();
+            stderr_lock.flush().ok();
             let mut password = String::new();
             if let Err(e) = stdin_lock.read_line(&mut password) {
                 eprintln!("error: failed to read password: {e}");
@@ -953,8 +953,13 @@ fn run_hash_password() -> ExitCode {
             }
             let password = password.trim().to_string();
 
-            write!(stdout_lock, "Confirm password: ").ok();
-            stdout_lock.flush().ok();
+            if password.is_empty() {
+                eprintln!("error: password cannot be empty");
+                return ExitCode::from(1);
+            }
+
+            write!(stderr_lock, "Confirm password: ").ok();
+            stderr_lock.flush().ok();
             let mut confirm = String::new();
             if let Err(e) = stdin_lock.read_line(&mut confirm) {
                 eprintln!("error: failed to read password: {e}");
