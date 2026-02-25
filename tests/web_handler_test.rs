@@ -312,33 +312,35 @@ mod backtest_submission_tests {
 mod error_handling_tests {
     use super::*;
 
+    fn invalid_date_form() -> &'static str {
+        "codes=BHP&start_date=invalid&end_date=2024-02-20&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1"
+    }
+
     #[tokio::test]
     async fn backtest_with_invalid_date_returns_error() {
         let app = create_test_app();
-        
-        let form_data = "codes=BHP&start_date=invalid&end_date=2024-02-20&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
-        
+
         let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/backtest/run")
                     .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(Body::from(form_data))
+                    .body(Body::from(invalid_date_form()))
                     .unwrap(),
             )
             .await
             .unwrap();
-        
+
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn backtest_with_empty_codes_returns_error() {
         let app = create_test_app();
-        
+
         let form_data = "codes=&start_date=2024-01-01&end_date=2024-02-20&initial_capital=100000&entry_rule=ABOVE(close%2C%20100)&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -350,16 +352,16 @@ mod error_handling_tests {
             )
             .await
             .unwrap();
-        
+
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn backtest_with_invalid_rule_returns_error() {
         let app = create_test_app();
-        
+
         let form_data = "codes=BHP&start_date=2024-01-01&end_date=2024-02-20&initial_capital=100000&entry_rule=invalid%20rule&exit_rule=BELOW(close%2C%20100)&position_size=0.25&max_positions=1";
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -371,8 +373,103 @@ mod error_handling_tests {
             )
             .await
             .unwrap();
-        
+
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn error_full_page_wraps_in_base_template() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/backtest/run")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(invalid_date_form()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(html.contains("<!DOCTYPE html>"), "full page should have DOCTYPE");
+        assert!(html.contains("<title>Error</title>"), "full page should have title");
+        assert!(html.contains("class=\"error\""), "should contain error div");
+    }
+
+    #[tokio::test]
+    async fn error_htmx_returns_fragment_only() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/backtest/run")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header("HX-Request", "true")
+                    .body(Body::from(invalid_date_form()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(!html.contains("<!DOCTYPE html>"), "HTMX fragment should not have DOCTYPE");
+        assert!(html.contains("class=\"error\""), "should contain error div");
+    }
+
+    #[tokio::test]
+    async fn not_found_returns_404_with_error_page() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(html.contains("class=\"error\""), "404 should render error template");
+        assert!(html.contains("<!DOCTYPE html>"), "404 full page should have DOCTYPE");
+    }
+
+    #[tokio::test]
+    async fn not_found_htmx_returns_fragment() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/nonexistent")
+                    .header("HX-Request", "true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+
+        assert!(!html.contains("<!DOCTYPE html>"), "HTMX 404 should be fragment");
+        assert!(html.contains("class=\"error\""), "should contain error div");
     }
 }
 

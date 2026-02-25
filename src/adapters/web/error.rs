@@ -9,11 +9,13 @@ use axum::{
 use crate::domain::error::SamtraderError;
 
 use super::is_htmx_request;
+use super::templates::{BasePage, ErrorTemplate};
 
 #[derive(Debug)]
 pub struct WebError {
     pub status: StatusCode,
     pub message: String,
+    headers: Option<HeaderMap>,
 }
 
 impl WebError {
@@ -21,6 +23,7 @@ impl WebError {
         Self {
             status,
             message: message.into(),
+            headers: None,
         }
     }
 
@@ -34,6 +37,12 @@ impl WebError {
 
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, message)
+    }
+
+    /// Attach request headers so the error response can distinguish HTMX vs full-page.
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = Some(headers);
+        self
     }
 }
 
@@ -57,63 +66,32 @@ impl From<SamtraderError> for WebError {
 
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {
-        let template = super::templates::ErrorTemplate {
+        let template = ErrorTemplate {
             message: &self.message,
             status: self.status.as_u16(),
         };
-        match template.render() {
-            Ok(html) => (self.status, Html(html)).into_response(),
-            Err(_) => (self.status, self.message).into_response(),
-        }
-    }
-}
 
-pub fn status_from_error(err: &SamtraderError) -> StatusCode {
-    match err {
-        SamtraderError::ConfigMissing { .. }
-        | SamtraderError::ConfigInvalid { .. }
-        | SamtraderError::ConfigParse { .. } => StatusCode::BAD_REQUEST,
-        SamtraderError::NoData { .. } | SamtraderError::InsufficientData { .. } => {
-            StatusCode::UNPROCESSABLE_ENTITY
-        }
-        SamtraderError::RuleParse(_) | SamtraderError::RuleInvalid { .. } => {
-            StatusCode::BAD_REQUEST
-        }
-        SamtraderError::Database { .. }
-        | SamtraderError::DatabaseQuery { .. }
-        | SamtraderError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
-    }
-}
-
-#[derive(Template)]
-#[template(path = "base.html")]
-struct BasePage<'a> {
-    title: &'a str,
-    content: &'a str,
-}
-
-pub async fn handle_error(err: SamtraderError, headers: &HeaderMap) -> Response {
-    let status = status_from_error(&err);
-    let template = super::templates::ErrorTemplate {
-        message: &err.to_string(),
-        status: status.as_u16(),
-    };
-
-    let content = match template.render() {
-        Ok(html) => html,
-        Err(_) => return (status, err.to_string()).into_response(),
-    };
-
-    if is_htmx_request(headers) {
-        (status, Html(content)).into_response()
-    } else {
-        let page = BasePage {
-            title: "Error",
-            content: &content,
+        let content = match template.render() {
+            Ok(html) => html,
+            Err(_) => return (self.status, self.message).into_response(),
         };
-        match page.render() {
-            Ok(html) => (status, Html(html)).into_response(),
-            Err(_) => (status, content).into_response(),
+
+        let is_htmx = self
+            .headers
+            .as_ref()
+            .map_or(false, |h| is_htmx_request(h));
+
+        if is_htmx {
+            (self.status, Html(content)).into_response()
+        } else {
+            let page = BasePage {
+                title: "Error",
+                content: &content,
+            };
+            match page.render() {
+                Ok(html) => (self.status, Html(html)).into_response(),
+                Err(_) => (self.status, Html(content)).into_response(),
+            }
         }
     }
 }

@@ -16,9 +16,9 @@ use super::{is_htmx_request, WebError};
 /// Base page wrapper. Renders the full HTML page around pre-rendered content.
 #[derive(Template)]
 #[template(path = "base.html")]
-struct BasePage<'a> {
-    title: &'a str,
-    content: &'a str,
+pub struct BasePage<'a> {
+    pub title: &'a str,
+    pub content: &'a str,
 }
 
 /// Render a template as an HTMX fragment or full page depending on headers.
