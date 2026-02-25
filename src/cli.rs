@@ -67,6 +67,13 @@ pub enum Command {
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
+    /// Start the web server
+    Serve {
+        #[arg(short, long)]
+        config: PathBuf,
+    },
+    /// Output an argon2 hash for a password
+    HashPassword,
 }
 
 pub fn run(cli: Cli) -> ExitCode {
@@ -98,6 +105,8 @@ pub fn run(cli: Cli) -> ExitCode {
             exchange,
             config,
         } => run_info(code.as_deref(), exchange.as_deref(), config.as_ref()),
+        Command::Serve { config } => run_serve(&config),
+        Command::HashPassword => run_hash_password(),
     }
 }
 
@@ -217,7 +226,14 @@ fn run_backtest(
 
     #[cfg(not(feature = "postgres"))]
     {
-        let _ = (&strategy, &bt_config, &codes, &exchange, output_path, template_path);
+        let _ = (
+            &strategy,
+            &bt_config,
+            &codes,
+            &exchange,
+            output_path,
+            template_path,
+        );
         eprintln!("error: postgres feature is required for backtest");
         ExitCode::from(1)
     }
@@ -230,29 +246,27 @@ pub fn build_backtest_config(adapter: &dyn ConfigPort) -> Result<BacktestConfig,
             section: "backtest".into(),
             key: "start_date".into(),
         })?;
-    let end_str = adapter
-        .get_string("backtest", "end_date")
-        .ok_or_else(|| SamtraderError::ConfigMissing {
+    let end_str = adapter.get_string("backtest", "end_date").ok_or_else(|| {
+        SamtraderError::ConfigMissing {
             section: "backtest".into(),
             key: "end_date".into(),
-        })?;
+        }
+    })?;
 
-    let start_date =
-        NaiveDate::parse_from_str(&start_str, "%Y-%m-%d").map_err(|_| {
-            SamtraderError::ConfigInvalid {
-                section: "backtest".into(),
-                key: "start_date".into(),
-                reason: "invalid date format (expected YYYY-MM-DD)".into(),
-            }
-        })?;
-    let end_date =
-        NaiveDate::parse_from_str(&end_str, "%Y-%m-%d").map_err(|_| {
-            SamtraderError::ConfigInvalid {
-                section: "backtest".into(),
-                key: "end_date".into(),
-                reason: "invalid date format (expected YYYY-MM-DD)".into(),
-            }
-        })?;
+    let start_date = NaiveDate::parse_from_str(&start_str, "%Y-%m-%d").map_err(|_| {
+        SamtraderError::ConfigInvalid {
+            section: "backtest".into(),
+            key: "start_date".into(),
+            reason: "invalid date format (expected YYYY-MM-DD)".into(),
+        }
+    })?;
+    let end_date = NaiveDate::parse_from_str(&end_str, "%Y-%m-%d").map_err(|_| {
+        SamtraderError::ConfigInvalid {
+            section: "backtest".into(),
+            key: "end_date".into(),
+            reason: "invalid date format (expected YYYY-MM-DD)".into(),
+        }
+    })?;
 
     Ok(BacktestConfig {
         start_date,
@@ -393,18 +407,14 @@ pub fn run_backtest_pipeline(
     let mut code_data_vec: Vec<CodeData> = Vec::with_capacity(valid_codes.len());
 
     for code in valid_codes {
-        let ohlcv = match data_port.fetch_ohlcv(
-            code,
-            exchange,
-            bt_config.start_date,
-            bt_config.end_date,
-        ) {
-            Ok(bars) => bars,
-            Err(e) => {
-                eprintln!("warning: skipping {} ({})", code, e);
-                continue;
-            }
-        };
+        let ohlcv =
+            match data_port.fetch_ohlcv(code, exchange, bt_config.start_date, bt_config.end_date) {
+                Ok(bars) => bars,
+                Err(e) => {
+                    eprintln!("warning: skipping {} ({})", code, e);
+                    continue;
+                }
+            };
 
         let indicators = compute_indicators(&ohlcv, &indicator_types);
         let mut cd = CodeData::new(code.clone(), exchange.to_string(), ohlcv);
@@ -437,7 +447,10 @@ pub fn run_backtest_pipeline(
     // Stage 10: Print console summary to stderr
     eprintln!("\n=== Aggregate Results ===");
     eprintln!("Total Return:     {:.2}%", metrics.total_return * 100.0);
-    eprintln!("Annualized:       {:.2}%", metrics.annualized_return * 100.0);
+    eprintln!(
+        "Annualized:       {:.2}%",
+        metrics.annualized_return * 100.0
+    );
     eprintln!("Sharpe Ratio:     {:.2}", metrics.sharpe_ratio);
     eprintln!("Sortino Ratio:    {:.2}", metrics.sortino_ratio);
     eprintln!("Max Drawdown:     -{:.1}%", metrics.max_drawdown * 100.0);
@@ -693,7 +706,10 @@ fn run_validate(strategy_path: &PathBuf) -> ExitCode {
         }
     }
 
-    if let Some(entry_short) = adapter.get_string("strategy", "entry_short").filter(|s| !s.trim().is_empty()) {
+    if let Some(entry_short) = adapter
+        .get_string("strategy", "entry_short")
+        .filter(|s| !s.trim().is_empty())
+    {
         eprintln!("\nEntry Short Rule:");
         match rule_parser::parse(&entry_short) {
             Ok(rule) => {
@@ -707,7 +723,10 @@ fn run_validate(strategy_path: &PathBuf) -> ExitCode {
         }
     }
 
-    if let Some(exit_short) = adapter.get_string("strategy", "exit_short").filter(|s| !s.trim().is_empty()) {
+    if let Some(exit_short) = adapter
+        .get_string("strategy", "exit_short")
+        .filter(|s| !s.trim().is_empty())
+    {
         eprintln!("\nExit Short Rule:");
         match rule_parser::parse(&exit_short) {
             Ok(rule) => {
@@ -812,4 +831,85 @@ pub fn resolve_codes(code_override: Option<&str>, config: &dyn ConfigPort) -> Ve
     }
 
     vec![]
+}
+
+fn run_serve(config_path: &PathBuf) -> ExitCode {
+    #[cfg(feature = "web")]
+    {
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
+        use crate::adapters::web::build_router;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+
+        eprintln!("Loading config from {}", config_path.display());
+        let config = match load_config(config_path) {
+            Ok(c) => c,
+            Err(code) => return code,
+        };
+
+        let data_port = match SqliteAdapter::from_config(&config) {
+            Ok(a) => Arc::new(a) as Arc<dyn crate::ports::data_port::DataPort + Send + Sync>,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        let addr: SocketAddr = config
+            .get_string("web", "listen")
+            .unwrap_or_else(|| "127.0.0.1:3000".to_string())
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:3000".parse().unwrap());
+
+        eprintln!("Starting web server on {}", addr);
+
+        let state = crate::adapters::web::AppState {
+            data_port,
+            config: Arc::new(config),
+        };
+
+        let router = build_router(state);
+
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async {
+                let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+                axum::serve(listener, router).await.unwrap();
+            });
+
+        ExitCode::SUCCESS
+    }
+
+    #[cfg(not(feature = "web"))]
+    {
+        let _ = config_path;
+        eprintln!("error: web feature is required for serve");
+        ExitCode::from(1)
+    }
+}
+
+fn run_hash_password() -> ExitCode {
+    #[cfg(feature = "web")]
+    {
+        use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version, password_hash::SaltString};
+        use std::io::{self, BufRead};
+        use rand::rngs::OsRng;
+
+        eprintln!("Enter password to hash:");
+        let stdin = io::stdin();
+        let password = stdin.lock().lines().next().unwrap_or(Ok(String::new())).unwrap();
+
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
+        let hash = argon2.hash_password(password.as_bytes(), &salt).unwrap();
+
+        println!("{}", hash);
+        ExitCode::SUCCESS
+    }
+
+    #[cfg(not(feature = "web"))]
+    {
+        eprintln!("error: web feature is required for hash-password");
+        ExitCode::from(1)
+    }
 }
