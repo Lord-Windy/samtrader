@@ -934,21 +934,40 @@ fn run_hash_password() -> ExitCode {
     #[cfg(feature = "web")]
     {
         use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version, password_hash::SaltString};
-        use std::io::{self, BufRead};
+        use std::io::{self, BufRead, Write};
         use rand::rngs::OsRng;
 
-        eprintln!("Enter password to hash:");
         let stdin = io::stdin();
-        let password = match stdin.lock().lines().next() {
-            Some(Ok(line)) => line,
-            Some(Err(e)) => {
+        let stdout = io::stdout();
+
+        let password = {
+            let mut stdout_lock = stdout.lock();
+            let stdin_lock = stdin.lock();
+
+            write!(stdout_lock, "Enter password: ").ok();
+            stdout_lock.flush().ok();
+            let mut password = String::new();
+            if let Err(e) = stdin_lock.read_line(&mut password) {
                 eprintln!("error: failed to read password: {e}");
                 return ExitCode::from(1);
             }
-            None => {
-                eprintln!("error: no input provided");
+            let password = password.trim().to_string();
+
+            write!(stdout_lock, "Confirm password: ").ok();
+            stdout_lock.flush().ok();
+            let mut confirm = String::new();
+            if let Err(e) = stdin_lock.read_line(&mut confirm) {
+                eprintln!("error: failed to read password: {e}");
                 return ExitCode::from(1);
             }
+            let confirm = confirm.trim().to_string();
+
+            if password != confirm {
+                eprintln!("error: passwords do not match");
+                return ExitCode::from(1);
+            }
+
+            password
         };
 
         let salt = SaltString::generate(&mut OsRng);
