@@ -95,6 +95,10 @@ username = admin
 ; Paste the output here (never store plaintext passwords)
 password_hash = $argon2id$v=19$m=19456,t=2,p=1$base64salt$base64hash
 
+; HMAC key for signing session cookies (128 hex chars = 64 bytes)
+; Generate with: python3 -c "import secrets; print(secrets.token_hex(64))"
+session_secret = 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
 ; Session lifetime in seconds (default: 86400 = 24 hours)
 session_lifetime = 86400
 

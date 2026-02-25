@@ -17,7 +17,7 @@ use axum::{
     routing::{get, post},
 };
 use axum_login::{login_required, AuthManagerLayerBuilder};
-use axum_login::tower_sessions::{Expiry, SessionManagerLayer};
+use axum_login::tower_sessions::{Expiry, SessionManagerLayer, cookie::Key};
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tower_sessions_rusqlite_store::RusqliteStore;
@@ -41,6 +41,13 @@ pub async fn build_router(state: AppState) -> Router {
         .get_string("auth", "password_hash")
         .expect("auth.password_hash must be set in config");
     let session_lifetime = state.config.get_int("auth", "session_lifetime", 86400);
+    let session_secret = state
+        .config
+        .get_string("auth", "session_secret")
+        .expect("auth.session_secret must be set in config");
+    let secret_bytes =
+        hex::decode(&session_secret).expect("auth.session_secret must be valid hex");
+    let key = Key::from(&secret_bytes);
 
     // Session store: open a separate tokio-rusqlite connection
     let db_path = state
@@ -59,6 +66,8 @@ pub async fn build_router(state: AppState) -> Router {
     // Auth backend and layers
     let backend = auth::Backend::new(username, password_hash);
     let session_layer = SessionManagerLayer::new(session_store)
+        .with_signed(key)
+        .with_secure(true)
         .with_expiry(Expiry::OnInactivity(time::Duration::seconds(
             session_lifetime,
         )));
