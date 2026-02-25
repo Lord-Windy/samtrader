@@ -324,6 +324,30 @@ mod tests {
     }
 
     #[test]
+    fn from_config_invalid_path() {
+        struct InvalidPathConfig;
+
+        impl ConfigPort for InvalidPathConfig {
+            fn get_string(&self, _section: &str, _key: &str) -> Option<String> {
+                Some("/nonexistent/directory/that/does/not/exist.db".to_string())
+            }
+            fn get_int(&self, _section: &str, _key: &str, default: i64) -> i64 {
+                default
+            }
+            fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
+                default
+            }
+            fn get_bool(&self, _section: &str, _key: &str, default: bool) -> bool {
+                default
+            }
+        }
+
+        let config = InvalidPathConfig;
+        let result = SqliteAdapter::from_config(&config);
+        assert!(result.is_err(), "expected error for invalid path, got Ok");
+    }
+
+    #[test]
     fn in_memory_initialization() {
         let adapter = SqliteAdapter::in_memory().unwrap();
         adapter.initialize_schema().unwrap();
