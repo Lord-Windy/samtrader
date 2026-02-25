@@ -223,14 +223,7 @@ fn run_backtest(
 
     #[cfg(not(feature = "postgres"))]
     {
-        let _ = (
-            &strategy,
-            &bt_config,
-            &codes,
-            &exchange,
-            output_path,
-            template_path,
-        );
+        let _ = (&strategy, &bt_config, &codes, &exchange, output_path, template_path);
         eprintln!("error: postgres feature is required for backtest");
         ExitCode::from(1)
     }
@@ -243,27 +236,29 @@ pub fn build_backtest_config(adapter: &dyn ConfigPort) -> Result<BacktestConfig,
             section: "backtest".into(),
             key: "start_date".into(),
         })?;
-    let end_str = adapter.get_string("backtest", "end_date").ok_or_else(|| {
-        SamtraderError::ConfigMissing {
+    let end_str = adapter
+        .get_string("backtest", "end_date")
+        .ok_or_else(|| SamtraderError::ConfigMissing {
             section: "backtest".into(),
             key: "end_date".into(),
-        }
-    })?;
+        })?;
 
-    let start_date = NaiveDate::parse_from_str(&start_str, "%Y-%m-%d").map_err(|_| {
-        SamtraderError::ConfigInvalid {
-            section: "backtest".into(),
-            key: "start_date".into(),
-            reason: "invalid date format (expected YYYY-MM-DD)".into(),
-        }
-    })?;
-    let end_date = NaiveDate::parse_from_str(&end_str, "%Y-%m-%d").map_err(|_| {
-        SamtraderError::ConfigInvalid {
-            section: "backtest".into(),
-            key: "end_date".into(),
-            reason: "invalid date format (expected YYYY-MM-DD)".into(),
-        }
-    })?;
+    let start_date =
+        NaiveDate::parse_from_str(&start_str, "%Y-%m-%d").map_err(|_| {
+            SamtraderError::ConfigInvalid {
+                section: "backtest".into(),
+                key: "start_date".into(),
+                reason: "invalid date format (expected YYYY-MM-DD)".into(),
+            }
+        })?;
+    let end_date =
+        NaiveDate::parse_from_str(&end_str, "%Y-%m-%d").map_err(|_| {
+            SamtraderError::ConfigInvalid {
+                section: "backtest".into(),
+                key: "end_date".into(),
+                reason: "invalid date format (expected YYYY-MM-DD)".into(),
+            }
+        })?;
 
     Ok(BacktestConfig {
         start_date,
@@ -404,14 +399,18 @@ pub fn run_backtest_pipeline(
     let mut code_data_vec: Vec<CodeData> = Vec::with_capacity(valid_codes.len());
 
     for code in valid_codes {
-        let ohlcv =
-            match data_port.fetch_ohlcv(code, exchange, bt_config.start_date, bt_config.end_date) {
-                Ok(bars) => bars,
-                Err(e) => {
-                    eprintln!("warning: skipping {} ({})", code, e);
-                    continue;
-                }
-            };
+        let ohlcv = match data_port.fetch_ohlcv(
+            code,
+            exchange,
+            bt_config.start_date,
+            bt_config.end_date,
+        ) {
+            Ok(bars) => bars,
+            Err(e) => {
+                eprintln!("warning: skipping {} ({})", code, e);
+                continue;
+            }
+        };
 
         let indicators = compute_indicators(&ohlcv, &indicator_types);
         let mut cd = CodeData::new(code.clone(), exchange.to_string(), ohlcv);
@@ -444,10 +443,7 @@ pub fn run_backtest_pipeline(
     // Stage 10: Print console summary to stderr
     eprintln!("\n=== Aggregate Results ===");
     eprintln!("Total Return:     {:.2}%", metrics.total_return * 100.0);
-    eprintln!(
-        "Annualized:       {:.2}%",
-        metrics.annualized_return * 100.0
-    );
+    eprintln!("Annualized:       {:.2}%", metrics.annualized_return * 100.0);
     eprintln!("Sharpe Ratio:     {:.2}", metrics.sharpe_ratio);
     eprintln!("Sortino Ratio:    {:.2}", metrics.sortino_ratio);
     eprintln!("Max Drawdown:     -{:.1}%", metrics.max_drawdown * 100.0);
@@ -703,10 +699,7 @@ fn run_validate(strategy_path: &PathBuf) -> ExitCode {
         }
     }
 
-    if let Some(entry_short) = adapter
-        .get_string("strategy", "entry_short")
-        .filter(|s| !s.trim().is_empty())
-    {
+    if let Some(entry_short) = adapter.get_string("strategy", "entry_short").filter(|s| !s.trim().is_empty()) {
         eprintln!("\nEntry Short Rule:");
         match rule_parser::parse(&entry_short) {
             Ok(rule) => {
@@ -720,10 +713,7 @@ fn run_validate(strategy_path: &PathBuf) -> ExitCode {
         }
     }
 
-    if let Some(exit_short) = adapter
-        .get_string("strategy", "exit_short")
-        .filter(|s| !s.trim().is_empty())
-    {
+    if let Some(exit_short) = adapter.get_string("strategy", "exit_short").filter(|s| !s.trim().is_empty()) {
         eprintln!("\nExit Short Rule:");
         match rule_parser::parse(&exit_short) {
             Ok(rule) => {
