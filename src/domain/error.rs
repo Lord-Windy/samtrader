@@ -27,6 +27,9 @@ pub enum SamtraderError {
     #[error("database error: {reason}")]
     Database { reason: String },
 
+    #[error("database connection error: {reason}")]
+    Connection { reason: String },
+
     #[error("database query error: {reason}")]
     DatabaseQuery { reason: String },
 
@@ -71,7 +74,9 @@ impl From<&SamtraderError> for std::process::ExitCode {
             SamtraderError::ConfigParse { .. }
             | SamtraderError::ConfigMissing { .. }
             | SamtraderError::ConfigInvalid { .. } => 2,
-            SamtraderError::Database { .. } | SamtraderError::DatabaseQuery { .. } => 3,
+            SamtraderError::Database { .. }
+            | SamtraderError::DatabaseQuery { .. }
+            | SamtraderError::Connection { .. } => 3,
             SamtraderError::RuleParse(_) | SamtraderError::RuleInvalid { .. } => 4,
             SamtraderError::NoData { .. } | SamtraderError::InsufficientData { .. } => 5,
         };
