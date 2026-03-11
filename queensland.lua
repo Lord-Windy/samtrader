@@ -2,7 +2,7 @@ local ql = require("queensland")
 
 ql.ai.register("opencode", {
     bin = "opencode",
-    default_args = {},
+    default_args = { "run" },
     timeout = 1200,
 })
 
@@ -20,18 +20,19 @@ local function fetch_tickets()
     for _, t in ipairs(raw) do
         table.insert(tickets, {
             id = t.key,
+            key = t.key,
             summary = t.summary,
             description = t.description,
             labels = t.labels,
             status = t.status,
+            project = t.project,
         })
     end
     return tickets
 end
 
 function process_ticket(ticket)
-    local branch = ticket.key:lower():gsub("[^%w%-]", "-")
-    local dir = ql.git.worktree_add(branch)
+    local dir = context.worktree_path
     local prompt = ql.prompt("implement.md", { ticket = ticket })
 
     local result = ql.ai.run({
@@ -44,12 +45,11 @@ function process_ticket(ticket)
         error("Implementation failed: " .. result.stderr)
     end
 
-    ql.git.commit(dir, string.format("%s: %s", ticket.key, ticket.summary))
-    ql.git.push(dir, branch)
+    ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
+    ql.git.push(dir, "ticket-" .. ticket.id:lower())
 
     return {
         status = "success",
-        branch = branch,
         dir = dir,
     }
 end
