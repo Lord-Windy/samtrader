@@ -89,6 +89,7 @@ shared via `Arc<dyn DataPort + Send + Sync>` as the web server requires.
 - Add `r2d2_postgres` dependency in `Cargo.toml`
 - Replace `RefCell<Client>` with `Pool<PostgresConnectionManager<NoTls>>`
 - Add `pool_size` config with default `4`, read from `[postgres] pool_size`
+- Set a connection timeout of 120 seconds on the pool builder to prevent hanging indefinitely
 - All methods call `self.pool.get()` instead of `self.client.borrow_mut()`
 
 **DataPort trait bound verification:**
@@ -179,16 +180,19 @@ them to UTC on storage.
 
 ### 1c. Add `insert_bars()` method
 
-Match the SQLite adapter's batch insert behavior with a transaction. Use:
+Match the SQLite adapter's batch insert behavior with a transaction. Use a single batched `INSERT` statement to avoid TCP roundtrip overhead for each row:
 
 ```sql
-INSERT ... ON CONFLICT (code, exchange, date) DO UPDATE SET ...
+INSERT INTO ohlcv (code, exchange, date, open, high, low, close, volume)
+VALUES ($1, $2, ...), ($9, $10, ...)
+ON CONFLICT (code, exchange, date) DO UPDATE SET ...
 ```
 
 Requirements:
 
 - Inserts and updates are transactional per batch
 - Duplicate rows are upserted deterministically
+- Construct a single query with multiple `VALUES` clauses rather than looping over individual inserts to ensure optimal network performance
 - Behavior should match SQLite semantics closely enough that higher layers do
   not care which adapter is in use
 
@@ -236,8 +240,8 @@ postgres = ["dep:postgres", "dep:r2d2", "dep:r2d2_postgres"]
 
 **File:** `src/adapters/web/mod.rs`
 
-Use `tower-sessions-memory-store` for PostgreSQL-backed web deployments in
-this phase.
+Use the `MemoryStore` built directly into `tower-sessions` for PostgreSQL-backed
+web deployments in this phase (no separate crate dependency is needed).
 
 Rationale:
 
@@ -589,6 +593,8 @@ server to avoid routing 13 GB through the control machine.
     PGPASSWORD={{ samtrader_pg_password }}
     psql -h localhost -U {{ samtrader_pg_user }} -d {{ samtrader_pg_database }}
     < /var/lib/samtrader/import/samtrader.sql
+  async: 3600
+  poll: 60
   when:
     - not dump_loaded_marker.stat.exists
     - dump_download is changed
