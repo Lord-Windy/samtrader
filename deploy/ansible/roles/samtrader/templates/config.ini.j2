@@ -1,4 +1,4 @@
-[database]
+[sqlite]
 path = {{ samtrader_db_path }}
 
 [server]
@@ -11,6 +11,7 @@ username = {{ samtrader_auth_username }}
 {% if samtrader_auth_password is defined %}
 password = {{ samtrader_auth_password }}
 {% endif %}
+session_secret = {{ samtrader_session_secret }}
 
 [backup]
 destination = {{ samtrader_backup_dir }}

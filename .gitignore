@@ -3,3 +3,4 @@ config.ini
 *.pdf
 *.typ
 deploy/.vagrant/
+deploy/ansible/roles/samtrader/files/samtrader

@@ -1,4 +1,25 @@
 ---
+- name: Create deploy user
+  user:
+    name: sam
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+    create_home: yes
+
+- name: Authorize SSH key for deploy user
+  authorized_key:
+    user: sam
+    key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIED/KaSdCuIQmovT1TzM4xl79aOGZJINrXKCNip9FNdc PersonalKey"
+    state: present
+
+- name: Allow deploy user passwordless sudo
+  copy:
+    dest: /etc/sudoers.d/sam
+    content: "sam ALL=(ALL) NOPASSWD:ALL\n"
+    mode: '0440'
+    validate: visudo -cf %s
+
 - name: Configure SSH hardening
   lineinfile:
     path: /etc/ssh/sshd_config
