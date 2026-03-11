@@ -15,4 +15,4 @@ Please implement the changes described above. Follow these guidelines:
 3. **Scope**: Keep changes focused on this ticket only
 4. **Documentation**: Update documentation if you change public APIs
 
-When you have completed the implementation, stop and let me know.
+When you have completed the implementation, commit and push.
