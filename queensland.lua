@@ -23,6 +23,7 @@ local function fetch_tickets()
             summary = t.summary,
             description = t.description,
             labels = t.labels,
+            status = t.status,
         })
     end
     return tickets
