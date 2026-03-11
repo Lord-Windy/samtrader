@@ -3,8 +3,10 @@ local ql = require("queensland")
 ql.ai.register("opencode", {
     bin = "opencode",
     default_args = {},
-    timeout = 900,
+    timeout = 1200,
 })
+
+ql.ai.set_merge_resolver("opencode", "resolve_conflict.md")
 
 local function fetch_tickets()
     local result = ql.exec(".", "st", "list", "--ready", "--project", "SAMTRADER", "--json")
