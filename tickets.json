@@ -1,0 +1,110 @@
+[
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 1a: Replace RefCell<Client> with r2d2 connection pool",
+    "description": "Update postgres_adapter.rs to use r2d2 connection pool instead of RefCell<Client> to support Arc<dyn DataPort + Send + Sync>. Add r2d2_postgres dependency, configure pool_size (default 4), set 120s connection timeout, and add compile-time Sync assertion. Handle pool.get() errors with DataError::Connection.",
+    "labels": ["backend", "postgres", "phase-1"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 1b: Add initialize_schema() method to PostgresAdapter",
+    "description": "Mirror SqliteAdapter::initialize_schema() with PostgreSQL DDL for fresh installs, local dev, and test setup. Schema must match the existing dump (NUMERIC for prices, INTEGER for volume, TIMESTAMPTZ for dates). Method must be idempotent and safe to run on already-initialized database.",
+    "labels": ["backend", "postgres", "phase-1"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 1c: Add insert_bars() method to PostgresAdapter",
+    "description": "Implement batch insert with transaction using single batched INSERT with ON CONFLICT upsert. Match SQLite adapter's batch insert behavior. Use multi-value INSERT for optimal network performance.",
+    "labels": ["backend", "postgres", "phase-1"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 1d: Add tests for PostgresAdapter",
+    "description": "Keep from_config_missing_connection_string test. Add tests for config parsing including default pool_size. Add adapter-level tests for schema initialization and upsert behavior. Integration tests may use real PostgreSQL and be marked #[ignore].",
+    "labels": ["backend", "postgres", "testing", "phase-1"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 1e: Verify FromSql and ToSql implementations",
+    "description": "Run cargo check --features postgres to ensure no type mismatch errors. Existing SQL casts (::double precision, ::bigint) should handle NUMERIC/INTEGER to Rust f64/i64 conversion.",
+    "labels": ["backend", "postgres", "phase-1"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 2: Update Cargo.toml for web feature flags",
+    "description": "Rename 'web' to 'web-sqlite', add 'web-postgres', keep 'web' as temporary alias. Add r2d2_postgres dependency. web-postgres uses MemoryStore from tower-sessions (no extra crate needed).",
+    "labels": ["backend", "postgres", "web", "phase-2"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 2: Update web session store for PostgreSQL",
+    "description": "Use MemoryStore from tower-sessions for PostgreSQL-backed web deployments. Sessions are ephemeral (not persisted across restarts). Update src/adapters/web/mod.rs with conditional session store and backend-specific wiring.",
+    "labels": ["backend", "postgres", "web", "phase-2"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 3a: Update run_serve() to support PostgreSQL",
+    "description": "Add #[cfg(feature = \"web-postgres\")] and #[cfg(feature = \"web-sqlite\")] blocks in src/cli.rs. Construct PostgresAdapter::from_config() or SqliteAdapter::from_config() respectively. Startup errors should clearly identify missing config or invalid connection settings.",
+    "labels": ["backend", "cli", "postgres", "phase-3"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 3b: Update run_migrate() to support PostgreSQL",
+    "description": "Extend Migrate command in src/cli.rs to accept --postgres <connstring> as alternative to --sqlite <path>. PostgreSQL path should call PostgresAdapter::initialize_schema(). Clarify in help text that migrate --postgres initializes schema but does not import samtrader.sql.",
+    "labels": ["backend", "cli", "postgres", "phase-3"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 4: Create Ansible PostgreSQL role",
+    "description": "Create deploy/ansible/roles/postgresql/ with tasks/main.yml (install PostgreSQL, create user/database, configure pg_hba for localhost TCP), handlers/main.yml (restart PostgreSQL), defaults/main.yml (samtrader_pg_user, samtrader_pg_database, pg_version). Use community.postgresql collection.",
+    "labels": ["ansible", "deployment", "postgres", "phase-4"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 5a: Update config template for PostgreSQL",
+    "description": "Update deploy/ansible/roles/samtrader/templates/config.ini.j2 with [postgres] section (connection_string, pool_size). Also update config.ini.example with both SQLite and PostgreSQL examples.",
+    "labels": ["ansible", "config", "postgres", "phase-5"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 5b: Update Ansible playbook for PostgreSQL",
+    "description": "Update deploy/ansible/playbook.yml to include postgresql role in the correct order (base, postgresql, caddy, samtrader, backup).",
+    "labels": ["ansible", "deployment", "postgres", "phase-5"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 5c: Update Samtrader Ansible role for web-postgres",
+    "description": "Update binary build and deploy path to use --features web-postgres instead of --features web. Make feature selection a variable to support both SQLite and PostgreSQL builds.",
+    "labels": ["ansible", "deployment", "postgres", "phase-5"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 5d: Update Ansible migrate task for PostgreSQL",
+    "description": "Update migration task in samtrader role to use: /usr/local/bin/samtrader migrate --postgres \"postgresql://...\". Task should be safe for empty-database initialization.",
+    "labels": ["ansible", "deployment", "postgres", "phase-5"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 6: Update backup role for PostgreSQL",
+    "description": "Update deploy/ansible/roles/backup/tasks/main.yml to use pg_dump with -Fc format for compressed PostgreSQL custom-format archive. Output to samtrader-${TIMESTAMP}.dump. Update rotation logic for new file pattern.",
+    "labels": ["ansible", "backup", "postgres", "phase-6"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Phase 7: Create Ansible tasks for bulk data import",
+    "description": "Create Ansible tasks to download samtrader.sql dump from Dropbox (via samtrader_sql_dump_url variable) and load into PostgreSQL using psql. Include marker file to prevent re-import, proper ownership, and cleanup of dump file after successful import. Handle 13GB/228M row import with async: 3600.",
+    "labels": ["ansible", "deployment", "postgres", "data-migration", "phase-7"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Update CI/build scripts for explicit feature names",
+    "description": "Update CI, build scripts, and documentation to use explicit feature names (web-sqlite, web-postgres) instead of implicit 'web'. Add migration guidance.",
+    "labels": ["ci", "docs", "postgres"]
+  },
+  {
+    "project": "SAMTRADER",
+    "summary": "Run verification tests for PostgreSQL migration",
+    "description": "Execute all verification steps: cargo test --features postgres, cargo test --features web-postgres, cargo test --features web-sqlite. Compare adapter results against fixture data. Test login/logout with memory session store. Verify Ansible playbook with --check --diff.",
+    "labels": ["testing", "postgres", "verification"]
+  }
+]
