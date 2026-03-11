@@ -15,7 +15,17 @@ local function fetch_tickets()
         error("Failed to fetch tickets: " .. result.stderr)
     end
 
-    return ql.json.decode(result.stdout)
+    local raw = ql.json.decode(result.stdout)
+    local tickets = {}
+    for _, t in ipairs(raw) do
+        table.insert(tickets, {
+            id = t.key,
+            summary = t.summary,
+            description = t.description,
+            labels = t.labels,
+        })
+    end
+    return tickets
 end
 
 function process_ticket(ticket)
