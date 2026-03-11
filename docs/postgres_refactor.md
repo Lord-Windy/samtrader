@@ -27,6 +27,33 @@ shared via `Arc<dyn DataPort + Send + Sync>` as the web server requires.
 - Add `pool_size` config (default 4, read from `[postgres] pool_size`)
 - All methods call `self.pool.get()` instead of `self.client.borrow_mut()`
 
+**DataPort trait bound verification:**
+
+After the pool change, verify `PostgresAdapter` compiles under
+`Arc<dyn DataPort + Send + Sync>`. The pool type is `Arc` internally and
+fully `Send + Sync`, so this should work. Add a compile-time assertion:
+
+```rust
+fn _assert_sync() {
+    fn is_sync<T: Sync>() {}
+    is_sync::<PostgresAdapter>();
+}
+```
+
+**Connection pool error handling:**
+
+`pool.get()` returns `Result<PooledConnection, r2d2::Error>`. Handle via:
+
+```rust
+fn get_conn(&self) -> Result<PooledConnection<...>, DataError> {
+    self.pool.get().map_err(|e| DataError::Connection(e.to_string()))
+}
+```
+
+All adapter methods propagate `DataError::Connection` upward — the web layer
+should convert this to HTTP 503 (Service Unavailable). Do not panic on pool
+exhaustion; let the caller decide.
+
 ### 1b. Add `initialize_schema()` method
 
 Mirror `SqliteAdapter::initialize_schema()` but with PostgreSQL DDL. The
@@ -77,6 +104,25 @@ Match SQLite adapter's batch insert with transactions. Use
 - `from_config_missing_connection_string` (already exists)
 - Integration tests can use a real pg via `#[ignore]` attribute
 
+### 1e. Verify `FromSql`/`ToSql` implementations
+
+The existing adapter uses `postgres` crate's `FromSql`/`ToSql` traits for
+type conversion. The pool change doesn't affect this — `PooledConnection`
+deref's to `Client`, so query execution is unchanged.
+
+**Sanity check before merge:**
+
+```bash
+cargo check --features postgres
+```
+
+Ensure no type mismatch errors. The existing casts in SQL
+(`::double precision`, `::bigint`) handle the `NUMERIC`/`INTEGER` → Rust
+`f64`/`i64` conversion at the database level, so Rust sees the types it
+expects.
+
+---
+
 **Cargo.toml changes:**
 ```toml
 r2d2_postgres = { version = "0.14", optional = true }
@@ -102,14 +148,23 @@ Upgrading to pg-backed sessions later is a one-file change (swap
 `MemoryStore` for `SqlxStore<Postgres>` in `build_router()` + add sqlx
 dep).
 
+**Feature flag naming:**
+
+Rename `web` → `web-sqlite` and add `web-postgres`. Deprecate bare `web`
+(with a comment in Cargo.toml pointing to `web-sqlite`).
+
 **Cargo.toml changes (memory store approach):**
 ```toml
 # Under [features]
+web-sqlite = ["sqlite", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum",
+    "dep:axum-login", "dep:tower-sessions", "dep:tower",
+    "dep:tower-http", "dep:argon2", "dep:serde", "dep:rand",
+    "dep:time", "dep:hex", "dep:tower-sessions-rusqlite-store", "dep:tokio-rusqlite"]
 web-postgres = ["postgres", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum",
     "dep:axum-login", "dep:tower-sessions", "dep:tower",
     "dep:tower-http", "dep:argon2", "dep:serde", "dep:rand",
     "dep:time", "dep:hex"]
-# Note: no tower-sessions-rusqlite-store or tokio-rusqlite needed
+# web = ["web-sqlite"]  # deprecated alias (optional)
 ```
 
 ---
@@ -120,8 +175,9 @@ web-postgres = ["postgres", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_a
 
 ### 3a. Update `run_serve()` to support postgres
 
-Add a `#[cfg(feature = "web-postgres")]` block that constructs
-`PostgresAdapter::from_config()` instead of `SqliteAdapter::from_config()`.
+Add `#[cfg(feature = "web-postgres")]` and `#[cfg(feature = "web-sqlite")]`
+blocks that construct `PostgresAdapter::from_config()` or
+`SqliteAdapter::from_config()` respectively.
 
 ### 3b. Update `run_migrate()` to support postgres
 
@@ -143,6 +199,22 @@ Migrate {
 ## Phase 4 — Ansible: PostgreSQL role
 
 **New directory:** `deploy/ansible/roles/postgresql/`
+
+### Prerequisite: Ansible collection
+
+The role uses `community.postgresql` modules. Install before running:
+
+```bash
+ansible-galaxy collection install community.postgresql
+```
+
+Or add to `deploy/ansible/requirements.yml`:
+
+```yaml
+collections:
+  - name: community.postgresql
+    version: ">=3.0.0"
+```
 
 ### `tasks/main.yml`
 
@@ -372,7 +444,7 @@ bulk loading.
 | `src/adapters/postgres_adapter.rs` | Major rewrite (pool, schema init, insert_bars) |
 | `src/adapters/web/mod.rs` | Conditional session store (memory for pg) |
 | `src/cli.rs` | Extend migrate + serve for postgres |
-| `Cargo.toml` | Add r2d2_postgres, web-postgres feature |
+| `Cargo.toml` | Add r2d2_postgres, rename web→web-sqlite, add web-postgres feature |
 | `deploy/ansible/roles/postgresql/` | New role (tasks, handlers, defaults) |
 | `deploy/ansible/roles/samtrader/templates/config.ini.j2` | Switch to [postgres] section |
 | `deploy/ansible/roles/backup/tasks/main.yml` | pg_dump instead of sqlite3 |
@@ -384,7 +456,8 @@ bulk loading.
 
 ## Verification
 
-1. **Unit tests:** `cargo test --features postgres` -- adapter tests pass
+1. **Unit tests:** `cargo test --features postgres` (adapter tests pass)
+   - Also run `cargo test --features web-postgres` for web layer
 2. **Local integration:** Start local pg, run `samtrader migrate --postgres "postgresql://..."`, load dump, run `samtrader serve -c config.ini`
 3. **Web sessions:** Login/logout cycle works with memory session store
 4. **Ansible dry-run:** `ansible-playbook --check --diff playbook.yml`
