@@ -54,6 +54,10 @@ function process_ticket(ticket)
     }
 end
 
+if context and context.action == "process_ticket" then
+    return process_ticket(context.ticket)
+end
+
 return {
     project = "SAMTRADER",
     tickets = fetch_tickets(),
