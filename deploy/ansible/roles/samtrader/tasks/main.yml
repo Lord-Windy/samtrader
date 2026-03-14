@@ -99,9 +99,10 @@
     owner: samtrader
     group: samtrader
     mode: '0640'
+    timeout: 600
   when:
     - samtrader_db_backend == 'postgres'
-    - samtrader_sql_dump_url | length > 0
+    - samtrader_sql_dump_url | default('') | length > 0
     - not bulk_import_marker.stat.exists
   register: sql_dump_download
 
@@ -122,6 +123,7 @@
   no_log: yes
   async: 3600
   poll: 30
+  changed_when: true
   register: sql_import
 
 - name: Create bulk import marker file
