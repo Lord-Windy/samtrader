@@ -93,6 +93,71 @@ impl PostgresAdapter {
 
         Ok(())
     }
+
+    pub fn insert_bars(&self, bars: &[OhlcvBar]) -> Result<(), SamtraderError> {
+        if bars.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.get_conn()?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        let mut param_idx = 1;
+        let mut value_rows: Vec<String> = Vec::new();
+        let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
+
+        for bar in bars {
+            let dt: DateTime<Utc> = bar.date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+            value_rows.push(format!(
+                "(${},${},${},${},${},${},${},${})",
+                param_idx,
+                param_idx + 1,
+                param_idx + 2,
+                param_idx + 3,
+                param_idx + 4,
+                param_idx + 5,
+                param_idx + 6,
+                param_idx + 7
+            ));
+            param_idx += 8;
+
+            params.push(&bar.code);
+            params.push(&bar.exchange);
+            params.push(&dt);
+            params.push(&bar.open);
+            params.push(&bar.high);
+            params.push(&bar.low);
+            params.push(&bar.close);
+            params.push(&bar.volume);
+        }
+
+        let query = format!(
+            "INSERT INTO public.ohlcv (code, exchange, date, open, high, low, close, volume) \
+             VALUES {} \
+             ON CONFLICT (code, exchange, date) DO UPDATE SET \
+             open = EXCLUDED.open, \
+             high = EXCLUDED.high, \
+             low = EXCLUDED.low, \
+             close = EXCLUDED.close, \
+             volume = EXCLUDED.volume",
+            value_rows.join(",")
+        );
+
+        tx.execute(&query, &params[..])
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        tx.commit().map_err(|e| SamtraderError::DatabaseQuery {
+            reason: e.to_string(),
+        })?;
+
+        Ok(())
+    }
 }
 
 impl DataPort for PostgresAdapter {
@@ -243,5 +308,114 @@ mod tests {
         let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
         adapter.initialize_schema().unwrap();
         adapter.initialize_schema().unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn postgres_insert_bars_and_fetch() {
+        let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
+        adapter.initialize_schema().unwrap();
+
+        let conn = adapter.get_conn().unwrap();
+        conn.execute("DELETE FROM public.ohlcv", &[]).unwrap();
+        drop(conn);
+
+        let bars = vec![
+            OhlcvBar {
+                code: "BHP".to_string(),
+                exchange: "ASX".to_string(),
+                date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                open: 100.0,
+                high: 101.0,
+                low: 99.0,
+                close: 100.5,
+                volume: 1000,
+            },
+            OhlcvBar {
+                code: "BHP".to_string(),
+                exchange: "ASX".to_string(),
+                date: NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+                open: 100.5,
+                high: 102.0,
+                low: 100.0,
+                close: 101.5,
+                volume: 1500,
+            },
+        ];
+
+        adapter.insert_bars(&bars).unwrap();
+
+        let fetched = adapter
+            .fetch_ohlcv(
+                "BHP",
+                "ASX",
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(fetched.len(), 2);
+        assert_eq!(fetched[0].code, "BHP");
+        assert_eq!(fetched[1].close, 101.5);
+    }
+
+    #[test]
+    #[ignore]
+    fn postgres_insert_bars_upsert() {
+        let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
+        adapter.initialize_schema().unwrap();
+
+        let conn = adapter.get_conn().unwrap();
+        conn.execute("DELETE FROM public.ohlcv", &[]).unwrap();
+        drop(conn);
+
+        let bars = vec![OhlcvBar {
+            code: "BHP".to_string(),
+            exchange: "ASX".to_string(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            open: 100.0,
+            high: 101.0,
+            low: 99.0,
+            close: 100.5,
+            volume: 1000,
+        }];
+
+        adapter.insert_bars(&bars).unwrap();
+
+        let updated_bars = vec![OhlcvBar {
+            code: "BHP".to_string(),
+            exchange: "ASX".to_string(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            open: 105.0,
+            high: 106.0,
+            low: 104.0,
+            close: 105.5,
+            volume: 2000,
+        }];
+
+        adapter.insert_bars(&updated_bars).unwrap();
+
+        let fetched = adapter
+            .fetch_ohlcv(
+                "BHP",
+                "ASX",
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(fetched.len(), 1);
+        assert_eq!(fetched[0].close, 105.5);
+        assert_eq!(fetched[0].volume, 2000);
+    }
+
+    #[test]
+    fn postgres_insert_bars_empty() {
+        let adapter = get_test_adapter();
+        if let Some(a) = adapter {
+            a.initialize_schema().unwrap();
+            let result = a.insert_bars(&[]);
+            assert!(result.is_ok());
+        }
     }
 }
