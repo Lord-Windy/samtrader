@@ -91,18 +91,18 @@ pub fn run_backtest(
 
             let bar = &cd.ohlcv[bar_index];
 
-            if portfolio.has_position(&cd.code) {
-                if rule_eval::evaluate(&strategy.exit_long, &cd.ohlcv, &cd.indicators, bar_index) {
-                    let entry_commission = entry_commissions.remove(&cd.code).unwrap_or(0.0);
-                    execution::exit_position(
-                        &mut portfolio,
-                        &cd.code,
-                        bar.close,
-                        date,
-                        entry_commission,
-                        &exec_config,
-                    );
-                }
+            if portfolio.has_position(&cd.code)
+                && rule_eval::evaluate(&strategy.exit_long, &cd.ohlcv, &cd.indicators, bar_index)
+            {
+                let entry_commission = entry_commissions.remove(&cd.code).unwrap_or(0.0);
+                execution::exit_position(
+                    &mut portfolio,
+                    &cd.code,
+                    bar.close,
+                    date,
+                    entry_commission,
+                    &exec_config,
+                );
             }
 
             if !portfolio.has_position(&cd.code) {

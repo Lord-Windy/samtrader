@@ -3,7 +3,7 @@
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::adapters::file_config_adapter::FileConfigAdapter;
@@ -851,7 +851,7 @@ fn run_migrate(sqlite_path: Option<&PathBuf>, postgres_conn: Option<&str>) -> Ex
     }
 }
 
-fn run_migrate_sqlite(sqlite_path: &PathBuf) -> ExitCode {
+fn run_migrate_sqlite(sqlite_path: &Path) -> ExitCode {
     #[cfg(feature = "sqlite")]
     {
         use crate::adapters::sqlite_adapter::SqliteAdapter;

@@ -76,7 +76,7 @@ impl IntoResponse for WebError {
             Err(_) => return (self.status, self.message).into_response(),
         };
 
-        let is_htmx = self.headers.as_ref().map_or(false, |h| is_htmx_request(h));
+        let is_htmx = self.headers.as_ref().is_some_and(is_htmx_request);
 
         if is_htmx {
             (self.status, Html(content)).into_response()

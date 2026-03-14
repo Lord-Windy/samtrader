@@ -2,17 +2,14 @@
 //!
 //! Generates HTML reports using Askama templates with inline SVG charts.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use crate::domain::backtest::{BacktestResult, MultiCodeResult};
 use crate::domain::error::SamtraderError;
 use crate::domain::metrics::Metrics;
-use crate::domain::portfolio::EquityPoint;
 use crate::domain::strategy::Strategy;
 use crate::ports::report_port::ReportPort;
-use chrono::Datelike;
 
 use askama::Template;
 
@@ -85,8 +82,6 @@ impl ReportPort for HtmlReportAdapter {
         let initial_capital = result.portfolio.initial_capital;
         let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
 
-        let monthly_returns = compute_monthly_returns(&result.portfolio.equity_curve);
-
         let template = ReportTemplate {
             report_id: "",
             strategy,
@@ -145,7 +140,6 @@ impl ReportPort for HtmlReportAdapter {
             .map(|p| p.date)
             .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap());
         let initial_capital = result.aggregate.portfolio.initial_capital;
-        let monthly_returns = compute_monthly_returns(&result.aggregate.portfolio.equity_curve);
 
         let code_results = crate::domain::metrics::CodeResult::compute_per_code(
             &result.aggregate.portfolio.closed_trades,

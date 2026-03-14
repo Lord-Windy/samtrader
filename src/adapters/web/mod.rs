@@ -51,6 +51,12 @@ pub struct BacktestCacheInner {
     entries: HashMap<String, CachedBacktest>,
 }
 
+impl Default for BacktestCacheInner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BacktestCacheInner {
     pub fn new() -> Self {
         Self { entries: HashMap::new() }
