@@ -1,5 +1,14 @@
+[database]
+backend = {{ samtrader_db_backend | default('sqlite') }}
+
+{% if samtrader_db_backend | default('sqlite') == 'postgres' %}
+[postgres]
+connection_string = postgresql://{{ samtrader_pg_user }}:{{ samtrader_pg_password }}@127.0.0.1:5432/{{ samtrader_pg_database }}
+pool_size = {{ samtrader_pg_pool_size | default(10) }}
+{% else %}
 [sqlite]
 path = {{ samtrader_db_path }}
+{% endif %}
 
 [server]
 host = 127.0.0.1

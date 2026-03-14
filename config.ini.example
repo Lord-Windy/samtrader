@@ -11,9 +11,24 @@
 ;   samtrader list-symbols --exchange ASX -c config.ini
 
 ; --- Database Connection ---
+; Samtrader supports both SQLite and PostgreSQL backends.
 
 [database]
-conninfo = postgresql://user:password@127.0.0.1:5432/samtrader
+; Backend: "sqlite" or "postgres"
+backend = sqlite
+
+; --- SQLite Configuration (default) ---
+; Used when backend = sqlite
+; [sqlite]
+; path = /var/lib/samtrader/samtrader.db
+
+; --- PostgreSQL Configuration ---
+; Used when backend = postgres
+; Uncomment and configure the [postgres] section below:
+
+; [postgres]
+; connection_string = postgresql://user:password@127.0.0.1:5432/samtrader
+; pool_size = 10
 
 ; --- Backtest Parameters ---
 
