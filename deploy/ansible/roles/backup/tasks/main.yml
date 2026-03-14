@@ -20,11 +20,20 @@
 
       mkdir -p "${BACKUP_DIR}"
 
+      export PGHOST="${SAMTRADER_PG_HOST:-127.0.0.1}"
+      export PGPORT="${SAMTRADER_PG_PORT:-5432}"
       export PGUSER="${SAMTRADER_PG_USER:-{{ samtrader_pg_user }}}"
       export PGPASSWORD="${SAMTRADER_PG_PASSWORD:-{{ samtrader_pg_password }}}"
       export PGDATABASE="${SAMTRADER_PG_DATABASE:-{{ samtrader_pg_database }}}"
 
-      pg_dump -Fc -f "${BACKUP_FILE}"
+      if ! pg_dump -Fc -f "${BACKUP_FILE}"; then
+        rm -f "${BACKUP_FILE}"
+        echo "ERROR: Backup failed" >&2
+        exit 1
+      fi
+
+      chmod 640 "${BACKUP_FILE}"
+      unset PGPASSWORD
 
       echo "Backup created: ${BACKUP_FILE}"
     owner: root
