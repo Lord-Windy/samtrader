@@ -9,6 +9,7 @@
 > **Feature Migration:** The `web` feature has been replaced with explicit `web-sqlite` and `web-postgres` features. Update your build commands accordingly:
 > - `--features web` → `--features web-sqlite`
 > - `--features sqlite,web` → `--features web-sqlite`
+> - For PostgreSQL backends: `--features web-postgres`
 
 ## 1. DNS
 
