@@ -6,16 +6,22 @@ use crate::ports::config_port::ConfigPort;
 use crate::ports::data_port::DataPort;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use postgres::types::ToSql;
-use postgres::{Client, NoTls};
-use std::cell::RefCell;
+use postgres::NoTls;
+use r2d2::Pool;
+use r2d2_postgres::PostgresConnectionManager;
+use std::time::Duration;
 
 pub struct PostgresAdapter {
-    client: RefCell<Client>,
+    pool: Pool<PostgresConnectionManager<NoTls>>,
+}
+
+fn _assert_sync() {
+    fn is_sync<T: Sync>() {}
+    is_sync::<PostgresAdapter>();
 }
 
 impl PostgresAdapter {
     pub fn from_config(config: &dyn ConfigPort) -> Result<Self, SamtraderError> {
-        // Try [postgres] connection_string first, fall back to [database] conninfo
         let connection_string = config
             .get_string("postgres", "connection_string")
             .or_else(|| config.get_string("database", "conninfo"))
@@ -24,13 +30,25 @@ impl PostgresAdapter {
                 key: "conninfo".into(),
             })?;
 
-        let client =
-            Client::connect(&connection_string, NoTls).map_err(|e| SamtraderError::Database {
+        let pool_size = config.get_int("postgres", "pool_size", 4) as u32;
+
+        let manager = PostgresConnectionManager::new(connection_string.parse().unwrap(), NoTls);
+        let pool = Pool::builder()
+            .max_size(pool_size)
+            .connection_timeout(Duration::from_secs(120))
+            .build(manager)
+            .map_err(|e: r2d2::Error| SamtraderError::Database {
                 reason: e.to_string(),
             })?;
 
-        Ok(Self {
-            client: RefCell::new(client),
+        Ok(Self { pool })
+    }
+
+    fn get_conn(
+        &self,
+    ) -> Result<r2d2::PooledConnection<PostgresConnectionManager<NoTls>>, SamtraderError> {
+        self.pool.get().map_err(|e| SamtraderError::Database {
+            reason: e.to_string(),
         })
     }
 }
@@ -43,7 +61,8 @@ impl DataPort for PostgresAdapter {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<Vec<OhlcvBar>, SamtraderError> {
-        // Convert NaiveDate to DateTime<Utc> for timestamptz columns
+        let mut conn = self.get_conn()?;
+
         let start_dt: DateTime<Utc> = start_date.and_time(NaiveTime::MIN).and_utc();
         let end_dt: DateTime<Utc> = end_date.and_hms_opt(23, 59, 59).unwrap().and_utc();
 
@@ -56,11 +75,11 @@ impl DataPort for PostgresAdapter {
                      ORDER BY date ASC";
 
         let params: &[&(dyn ToSql + Sync)] = &[&code, &exchange, &start_dt, &end_dt];
-        let rows = self.client.borrow_mut().query(query, params).map_err(|e| {
-            SamtraderError::DatabaseQuery {
+        let rows = conn
+            .query(query, params)
+            .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
 
         let bars: Vec<OhlcvBar> = rows
             .into_iter()
@@ -83,11 +102,11 @@ impl DataPort for PostgresAdapter {
     }
 
     fn list_symbols(&self, exchange: &str) -> Result<Vec<String>, SamtraderError> {
+        let mut conn = self.get_conn()?;
+
         let query = "SELECT DISTINCT code FROM public.ohlcv WHERE exchange = $1 ORDER BY code";
 
-        let rows = self
-            .client
-            .borrow_mut()
+        let rows = conn
             .query(query, &[&exchange])
             .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
@@ -103,15 +122,15 @@ impl DataPort for PostgresAdapter {
         code: &str,
         exchange: &str,
     ) -> Result<Option<(NaiveDate, NaiveDate, usize)>, SamtraderError> {
+        let mut conn = self.get_conn()?;
+
         let query = "SELECT MIN(date), MAX(date), COUNT(*) FROM public.ohlcv WHERE code = $1 AND exchange = $2";
 
-        let rows = self
-            .client
-            .borrow_mut()
-            .query(query, &[&code, &exchange])
-            .map_err(|e| SamtraderError::DatabaseQuery {
-                reason: e.to_string(),
-            })?;
+        let rows =
+            conn.query(query, &[&code, &exchange])
+                .map_err(|e| SamtraderError::DatabaseQuery {
+                    reason: e.to_string(),
+                })?;
 
         if rows.is_empty() {
             return Ok(None);
