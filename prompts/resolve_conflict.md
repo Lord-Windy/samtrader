@@ -1,6 +1,6 @@
 # Resolve Merge Conflict
 
-You are resolving a merge conflict for the file: {{file_path}}
+You are resolving merge conflicts for branch: {{branch}}
 
 ## Conflict Content
 ```

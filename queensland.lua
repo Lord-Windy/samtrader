@@ -45,6 +45,26 @@ function process_ticket(ticket)
         error("Implementation failed: " .. result.stderr)
     end
 
+    return {
+        status = "success",
+        dir = dir,
+    }
+end
+
+function review_ticket(ticket)
+    local dir = context.worktree_path
+    local prompt = ql.prompt("review.md", { ticket = ticket })
+
+    local result = ql.ai.run({
+        tool = "opencode",
+        cwd = dir,
+        prompt = prompt,
+    })
+
+    if not result.success then
+        error("Review failed: " .. result.stderr)
+    end
+
     ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
     ql.git.push(dir, "ticket-" .. ticket.id:lower())
 
@@ -56,6 +76,10 @@ end
 
 if context and context.action == "process_ticket" then
     return process_ticket(context.ticket)
+end
+
+if context and context.action == "review_ticket" then
+    return review_ticket(context.ticket)
 end
 
 return {
