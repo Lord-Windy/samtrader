@@ -862,9 +862,9 @@ fn run_migrate(sqlite_path: &PathBuf) -> ExitCode {
 }
 
 fn run_serve(config_path: &PathBuf) -> ExitCode {
-    #[cfg(feature = "web")]
+    #[cfg(feature = "web-postgres")]
     {
-        use crate::adapters::sqlite_adapter::SqliteAdapter;
+        use crate::adapters::postgres_adapter::PostgresAdapter;
         use crate::adapters::web::build_router;
         use std::net::SocketAddr;
         use std::sync::Arc;
@@ -875,10 +875,10 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
             Err(code) => return code,
         };
 
-        let data_port = match SqliteAdapter::from_config(&config) {
+        let data_port = match PostgresAdapter::from_config(&config) {
             Ok(a) => Arc::new(a) as Arc<dyn crate::ports::data_port::DataPort + Send + Sync>,
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln!("error: failed to connect to PostgreSQL: {e}");
                 return ExitCode::from(1);
             }
         };
@@ -889,7 +889,7 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
             .parse()
             .unwrap_or_else(|_| "127.0.0.1:3000".parse().unwrap());
 
-        eprintln!("Starting web server on {}", addr);
+        eprintln!("Starting web server on {} (PostgreSQL)", addr);
 
         let state = crate::adapters::web::AppState {
             data_port,
@@ -923,10 +923,71 @@ fn run_serve(config_path: &PathBuf) -> ExitCode {
         })
     }
 
-    #[cfg(not(feature = "web"))]
+    #[cfg(all(feature = "web-sqlite", not(feature = "web-postgres")))]
+    {
+        use crate::adapters::sqlite_adapter::SqliteAdapter;
+        use crate::adapters::web::build_router;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+
+        eprintln!("Loading config from {}", config_path.display());
+        let config = match load_config(config_path) {
+            Ok(c) => c,
+            Err(code) => return code,
+        };
+
+        let data_port = match SqliteAdapter::from_config(&config) {
+            Ok(a) => Arc::new(a) as Arc<dyn crate::ports::data_port::DataPort + Send + Sync>,
+            Err(e) => {
+                eprintln!("error: failed to connect to SQLite: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        let addr: SocketAddr = config
+            .get_string("web", "listen")
+            .unwrap_or_else(|| "127.0.0.1:3000".to_string())
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:3000".parse().unwrap());
+
+        eprintln!("Starting web server on {} (SQLite)", addr);
+
+        let state = crate::adapters::web::AppState {
+            data_port,
+            config: Arc::new(config),
+            backtest_cache: crate::adapters::web::new_backtest_cache(),
+        };
+
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("error: failed to create tokio runtime: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        rt.block_on(async {
+            let router = build_router(state).await;
+
+            let listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("error: failed to bind {addr}: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            if let Err(e) = axum::serve(listener, router).await {
+                eprintln!("error: server failed: {e}");
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        })
+    }
+
+    #[cfg(not(any(feature = "web-sqlite", feature = "web-postgres")))]
     {
         let _ = config_path;
-        eprintln!("error: web feature is required for serve");
+        eprintln!("error: web-sqlite or web-postgres feature is required for serve");
         ExitCode::from(1)
     }
 }

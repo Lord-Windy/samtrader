@@ -144,7 +144,7 @@ pub async fn build_router(state: AppState) -> Router {
     };
 
     #[cfg(feature = "web-postgres")]
-    let session_store = tower_sessions::MemoryStore::new();
+    let session_store = tower_sessions::MemoryStore::default();
 
     let backend = auth::Backend::new(username, password_hash);
     let session_layer = SessionManagerLayer::new(session_store)
