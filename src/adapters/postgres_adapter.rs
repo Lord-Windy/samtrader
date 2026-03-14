@@ -32,7 +32,12 @@ impl PostgresAdapter {
 
         let pool_size = config.get_int("postgres", "pool_size", 4) as u32;
 
-        let manager = PostgresConnectionManager::new(connection_string.parse().unwrap(), NoTls);
+        let pg_config = connection_string
+            .parse()
+            .map_err(|e| SamtraderError::Database {
+                reason: format!("Invalid connection string: {}", e),
+            })?;
+        let manager = PostgresConnectionManager::new(pg_config, NoTls);
         let pool = Pool::builder()
             .max_size(pool_size)
             .connection_timeout(Duration::from_secs(120))
