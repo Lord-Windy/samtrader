@@ -1,0 +1,5 @@
+---
+samtrader_pg_user: samtrader
+samtrader_pg_database: samtrader
+samtrader_pg_password: ""
+pg_version: "16"

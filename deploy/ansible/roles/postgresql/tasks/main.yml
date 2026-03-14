@@ -1,0 +1,93 @@
+---
+- name: Install PostgreSQL dependencies
+  apt:
+    name:
+      - gnupg2
+      - wget
+      - acl
+    state: present
+    update_cache: yes
+
+- name: Add PostgreSQL APT repository key
+  apt_key:
+    url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+    state: present
+
+- name: Add PostgreSQL APT repository
+  apt_repository:
+    repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+    state: present
+    filename: postgresql
+
+- name: Install PostgreSQL
+  apt:
+    name:
+      - "postgresql-{{ pg_version }}"
+      - "postgresql-contrib-{{ pg_version }}"
+      - "python3-psycopg2"
+    state: present
+    update_cache: yes
+
+- name: Ensure PostgreSQL service is started and enabled
+  systemd:
+    name: postgresql
+    state: started
+    enabled: yes
+
+- name: Configure pg_hba.conf for localhost TCP connections
+  copy:
+    dest: "/etc/postgresql/{{ pg_version }}/main/pg_hba.conf"
+    content: |
+      # PostgreSQL Client Authentication Configuration File
+      # TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+      # Local connections (Unix socket)
+      local   all             all                                     peer
+
+      # Localhost TCP connections (password authentication)
+      host    all             all             127.0.0.1/32            scram-sha-256
+      host    all             all             ::1/128                 scram-sha-256
+
+      # Replication connections
+      local   replication     all                                     peer
+      host    replication     all             127.0.0.1/32            scram-sha-256
+      host    replication     all             ::1/128                 scram-sha-256
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: Restart PostgreSQL
+
+- name: Configure postgresql.conf to listen on localhost
+  lineinfile:
+    path: "/etc/postgresql/{{ pg_version }}/main/postgresql.conf"
+    regexp: "^#?listen_addresses"
+    line: "listen_addresses = 'localhost'"
+    state: present
+  notify: Restart PostgreSQL
+
+- name: Create PostgreSQL user
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: "{{ samtrader_pg_user }}"
+    password: "{{ samtrader_pg_password }}"
+    state: present
+    encrypted: yes
+
+- name: Create PostgreSQL database
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: "{{ samtrader_pg_database }}"
+    owner: "{{ samtrader_pg_user }}"
+    state: present
+    encoding: UTF-8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+
+- name: Grant privileges on database to user
+  become_user: postgres
+  community.postgresql.postgresql_privs:
+    db: "{{ samtrader_pg_database }}"
+    privs: ALL
+    type: database
+    role: "{{ samtrader_pg_user }}"
+    grant_option: no
