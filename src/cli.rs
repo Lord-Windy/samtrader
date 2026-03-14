@@ -67,10 +67,17 @@ pub enum Command {
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
-    /// Create SQLite database schema
+    /// Initialize database schema
+    ///
+    /// Creates the OHLCV table and indexes. Use --sqlite for SQLite databases
+    /// or --postgres for PostgreSQL databases.
+    ///
+    /// Note: --postgres initializes the schema but does not import samtrader.sql.
     Migrate {
         #[arg(long)]
-        sqlite: PathBuf,
+        sqlite: Option<PathBuf>,
+        #[arg(long)]
+        postgres: Option<String>,
     },
     /// Start the web server
     Serve {
@@ -110,7 +117,7 @@ pub fn run(cli: Cli) -> ExitCode {
             exchange,
             config,
         } => run_info(code.as_deref(), exchange.as_deref(), config.as_ref()),
-        Command::Migrate { sqlite } => run_migrate(&sqlite),
+        Command::Migrate { sqlite, postgres } => run_migrate(sqlite.as_ref(), postgres.as_deref()),
         Command::Serve { config } => run_serve(&config),
         Command::HashPassword => run_hash_password(),
     }
@@ -829,7 +836,22 @@ pub fn resolve_codes(code_override: Option<&str>, config: &dyn ConfigPort) -> Ve
     vec![]
 }
 
-fn run_migrate(sqlite_path: &PathBuf) -> ExitCode {
+fn run_migrate(sqlite_path: Option<&PathBuf>, postgres_conn: Option<&str>) -> ExitCode {
+    match (sqlite_path, postgres_conn) {
+        (Some(path), None) => run_migrate_sqlite(path),
+        (None, Some(conn)) => run_migrate_postgres(conn),
+        (Some(_), Some(_)) => {
+            eprintln!("error: cannot specify both --sqlite and --postgres");
+            ExitCode::from(1)
+        }
+        (None, None) => {
+            eprintln!("error: must specify either --sqlite or --postgres");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run_migrate_sqlite(sqlite_path: &PathBuf) -> ExitCode {
     #[cfg(feature = "sqlite")]
     {
         use crate::adapters::sqlite_adapter::SqliteAdapter;
@@ -856,7 +878,40 @@ fn run_migrate(sqlite_path: &PathBuf) -> ExitCode {
     #[cfg(not(feature = "sqlite"))]
     {
         let _ = sqlite_path;
-        eprintln!("error: sqlite feature is required for migrate");
+        eprintln!("error: sqlite feature is required for migrate --sqlite");
+        ExitCode::from(1)
+    }
+}
+
+fn run_migrate_postgres(conn_string: &str) -> ExitCode {
+    #[cfg(feature = "web-postgres")]
+    {
+        use crate::adapters::postgres_adapter::PostgresAdapter;
+
+        eprintln!("Creating schema for PostgreSQL...");
+
+        let adapter = match PostgresAdapter::from_connection_string(conn_string) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return (&e).into();
+            }
+        };
+
+        if let Err(e) = adapter.initialize_schema() {
+            eprintln!("error: {e}");
+            return (&e).into();
+        }
+
+        eprintln!("Schema created successfully");
+        eprintln!("Note: This initializes the schema but does not import samtrader.sql");
+        ExitCode::SUCCESS
+    }
+
+    #[cfg(not(feature = "web-postgres"))]
+    {
+        let _ = conn_string;
+        eprintln!("error: web-postgres feature is required for migrate --postgres");
         ExitCode::from(1)
     }
 }

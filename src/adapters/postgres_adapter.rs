@@ -21,6 +21,24 @@ fn _assert_sync() {
 }
 
 impl PostgresAdapter {
+    pub fn from_connection_string(connection_string: &str) -> Result<Self, SamtraderError> {
+        let pg_config = connection_string
+            .parse()
+            .map_err(|e| SamtraderError::Database {
+                reason: format!("Invalid connection string: {}", e),
+            })?;
+        let manager = PostgresConnectionManager::new(pg_config, NoTls);
+        let pool = Pool::builder()
+            .max_size(4)
+            .connection_timeout(Duration::from_secs(120))
+            .build(manager)
+            .map_err(|e: r2d2::Error| SamtraderError::Database {
+                reason: e.to_string(),
+            })?;
+
+        Ok(Self { pool })
+    }
+
     pub fn from_config(config: &dyn ConfigPort) -> Result<Self, SamtraderError> {
         let connection_string = config
             .get_string("postgres", "connection_string")
