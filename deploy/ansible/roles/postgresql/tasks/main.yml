@@ -71,7 +71,7 @@
     name: "{{ samtrader_pg_user }}"
     password: "{{ samtrader_pg_password }}"
     state: present
-    encrypted: yes
+  no_log: true
 
 - name: Create PostgreSQL database
   become_user: postgres

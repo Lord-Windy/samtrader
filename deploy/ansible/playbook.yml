@@ -3,6 +3,7 @@
   become: yes
   roles:
     - base
+    - postgresql
     - caddy
     - samtrader
     - backup

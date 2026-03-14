@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  author: samtrader
+  description: PostgreSQL role for Samtrader
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+
+dependencies: []

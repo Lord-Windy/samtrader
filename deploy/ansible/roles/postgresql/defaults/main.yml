@@ -1,5 +1,5 @@
 ---
 samtrader_pg_user: samtrader
 samtrader_pg_database: samtrader
-samtrader_pg_password: ""
+samtrader_pg_password: ""  # Must be set via inventory or Ansible Vault
 pg_version: "16"
