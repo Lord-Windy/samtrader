@@ -1,3 +1,6 @@
 ---
 samtrader_db_backend: postgres
+samtrader_db_path: /var/lib/samtrader/samtrader.db
+samtrader_pg_user: samtrader
+samtrader_pg_database: samtrader
 samtrader_build_features: "{% if samtrader_db_backend == 'postgres' %}web-postgres{% else %}web-sqlite{% endif %}"

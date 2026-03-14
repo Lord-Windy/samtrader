@@ -84,6 +84,7 @@
   command: /usr/local/bin/samtrader migrate --postgres "postgresql://{{ samtrader_pg_user }}:{{ samtrader_pg_password }}@127.0.0.1:5432/{{ samtrader_pg_database }}"
   become_user: samtrader
   when: samtrader_db_backend == 'postgres'
+  no_log: yes
 
 - name: Enable and start samtrader service
   systemd:
