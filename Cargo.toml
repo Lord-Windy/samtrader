@@ -15,10 +15,15 @@ path = "src/main.rs"
 default = ["sqlite"]
 postgres = ["dep:postgres", "dep:r2d2", "dep:r2d2_postgres"]
 sqlite = ["dep:rusqlite", "dep:r2d2", "dep:r2d2_sqlite"]
-web = ["sqlite", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum",
-       "dep:axum-login", "dep:tower-sessions", "dep:tower-sessions-rusqlite-store",
-       "dep:tower", "dep:tower-http", "dep:argon2", "dep:serde", "dep:rand",
-       "dep:time", "dep:tokio-rusqlite", "dep:hex"]
+web-sqlite = ["sqlite", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum",
+              "dep:axum-login", "dep:tower-sessions", "dep:tower-sessions-rusqlite-store",
+              "dep:tower", "dep:tower-http", "dep:argon2", "dep:serde", "dep:rand",
+              "dep:time", "dep:tokio-rusqlite", "dep:hex"]
+web-postgres = ["postgres", "dep:axum", "dep:tokio", "dep:askama", "dep:askama_axum",
+                "dep:axum-login", "dep:tower-sessions",
+                "dep:tower", "dep:tower-http", "dep:argon2", "dep:serde", "dep:rand",
+                "dep:time", "dep:hex"]
+web = ["web-sqlite"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
