@@ -21,6 +21,7 @@ use axum_login::tower_sessions::{Expiry, SessionManagerLayer, cookie::Key};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tower_http::services::ServeDir;
+#[cfg(feature = "web-sqlite")]
 use tower_sessions_rusqlite_store::RusqliteStore;
 
 use crate::ports::data_port::DataPort;
@@ -125,21 +126,26 @@ pub async fn build_router(state: AppState) -> Router {
         hex::decode(&session_secret).expect("auth.session_secret must be valid hex");
     let key = Key::from(&secret_bytes);
 
-    // Session store: open a separate tokio-rusqlite connection
-    let db_path = state
-        .config
-        .get_string("database", "sqlite_path")
-        .unwrap_or_else(|| "samtrader.db".to_string());
-    let session_conn = tower_sessions_rusqlite_store::tokio_rusqlite::Connection::open(&db_path)
-        .await
-        .expect("failed to open session database");
-    let session_store = RusqliteStore::new(session_conn);
-    session_store
-        .migrate()
-        .await
-        .expect("failed to migrate session table");
+    #[cfg(feature = "web-sqlite")]
+    let session_store = {
+        let db_path = state
+            .config
+            .get_string("database", "sqlite_path")
+            .unwrap_or_else(|| "samtrader.db".to_string());
+        let session_conn = tower_sessions_rusqlite_store::tokio_rusqlite::Connection::open(&db_path)
+            .await
+            .expect("failed to open session database");
+        let store = RusqliteStore::new(session_conn);
+        store
+            .migrate()
+            .await
+            .expect("failed to migrate session table");
+        store
+    };
 
-    // Auth backend and layers
+    #[cfg(feature = "web-postgres")]
+    let session_store = tower_sessions::MemoryStore::new();
+
     let backend = auth::Backend::new(username, password_hash);
     let session_layer = SessionManagerLayer::new(session_store)
         .with_signed(key)
