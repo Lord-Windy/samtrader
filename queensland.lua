@@ -34,16 +34,18 @@ end
 function process_ticket(ticket)
     local dir = context.worktree_path
     local branch = "ticket-" .. ticket.id:lower()
-    local prompt = ql.prompt("implement.md", { ticket = ticket })
 
-    local result = ql.ai.run({
+    -- Phase 1: Implement
+    local impl_prompt = ql.prompt("implement.md", { ticket = ticket })
+
+    local impl_result = ql.ai.run({
         tool = "opencode",
         cwd = dir,
-        prompt = prompt,
+        prompt = impl_prompt,
     })
 
-    if not result.success then
-        error("Implementation failed: " .. result.stderr)
+    if not impl_result.success then
+        error("Implementation failed: " .. impl_result.stderr)
     end
 
     local status_result = ql.exec(dir, "git", "status", "--porcelain")
@@ -52,33 +54,26 @@ function process_ticket(ticket)
         ql.git.push(dir, branch)
     end
 
-    return {
-        status = "success",
-        dir = dir,
-    }
-end
+    -- Phase 2: Review
+    local review_prompt = ql.prompt("review.md", { ticket = ticket })
 
-function review_ticket(ticket)
-    local dir = context.worktree_path
-    local branch = "ticket-" .. ticket.id:lower()
-    local prompt = ql.prompt("review.md", { ticket = ticket })
-
-    local result = ql.ai.run({
+    local review_result = ql.ai.run({
         tool = "opencode",
         cwd = dir,
-        prompt = prompt,
+        prompt = review_prompt,
     })
 
-    if not result.success then
-        error("Review failed: " .. result.stderr)
+    if not review_result.success then
+        error("Review failed: " .. review_result.stderr)
     end
 
-    local status_result = ql.exec(dir, "git", "status", "--porcelain")
+    status_result = ql.exec(dir, "git", "status", "--porcelain")
     if status_result.success and status_result.stdout ~= "" then
-        ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
+        ql.git.commit(dir, string.format("%s: review %s", ticket.id, ticket.summary))
         ql.git.push(dir, branch)
     end
 
+    -- Queue for merge
     ql.git.queue_merge(ticket.id, branch)
 
     return {
@@ -89,14 +84,6 @@ end
 
 if context and context.action == "process_ticket" then
     return process_ticket(context.ticket)
-end
-
-if context and context.action == "review_ticket" then
-    return review_ticket(context.ticket)
-end
-
-if context and context.action == "merge_all" then
-    return ql.git.merge_all()
 end
 
 return {
