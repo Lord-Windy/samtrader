@@ -100,7 +100,7 @@ impl PostgresAdapter {
         }
 
         let mut conn = self.get_conn()?;
-        let tx = conn
+        let mut tx = conn
             .transaction()
             .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
@@ -108,7 +108,7 @@ impl PostgresAdapter {
 
         let mut param_idx = 1;
         let mut value_rows: Vec<String> = Vec::new();
-        let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
+        let mut params: Vec<Box<dyn ToSql + Sync>> = Vec::new();
 
         for bar in bars {
             let dt: DateTime<Utc> = bar.date.and_hms_opt(0, 0, 0).unwrap().and_utc();
@@ -125,14 +125,14 @@ impl PostgresAdapter {
             ));
             param_idx += 8;
 
-            params.push(&bar.code);
-            params.push(&bar.exchange);
-            params.push(&dt);
-            params.push(&bar.open);
-            params.push(&bar.high);
-            params.push(&bar.low);
-            params.push(&bar.close);
-            params.push(&bar.volume);
+            params.push(Box::new(bar.code.clone()));
+            params.push(Box::new(bar.exchange.clone()));
+            params.push(Box::new(dt));
+            params.push(Box::new(bar.open));
+            params.push(Box::new(bar.high));
+            params.push(Box::new(bar.low));
+            params.push(Box::new(bar.close));
+            params.push(Box::new(bar.volume));
         }
 
         let query = format!(
@@ -147,7 +147,8 @@ impl PostgresAdapter {
             value_rows.join(",")
         );
 
-        tx.execute(&query, &params[..])
+        let params_refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p.as_ref()).collect();
+        tx.execute(&query, &params_refs[..])
             .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
             })?;
@@ -316,7 +317,7 @@ mod tests {
         let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
         adapter.initialize_schema().unwrap();
 
-        let conn = adapter.get_conn().unwrap();
+        let mut conn = adapter.get_conn().unwrap();
         conn.execute("DELETE FROM public.ohlcv", &[]).unwrap();
         drop(conn);
 
@@ -365,7 +366,7 @@ mod tests {
         let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
         adapter.initialize_schema().unwrap();
 
-        let conn = adapter.get_conn().unwrap();
+        let mut conn = adapter.get_conn().unwrap();
         conn.execute("DELETE FROM public.ohlcv", &[]).unwrap();
         drop(conn);
 
