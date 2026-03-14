@@ -4,3 +4,6 @@ samtrader_db_path: /var/lib/samtrader/samtrader.db
 samtrader_pg_user: samtrader
 samtrader_pg_database: samtrader
 samtrader_build_features: "{% if samtrader_db_backend == 'postgres' %}web-postgres{% else %}web-sqlite{% endif %}"
+samtrader_sql_dump_url: ""
+samtrader_import_marker_file: /var/lib/samtrader/.bulk-import-complete
+samtrader_sql_dump_path: /var/lib/samtrader/samtrader.sql

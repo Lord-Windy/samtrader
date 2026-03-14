@@ -87,6 +87,58 @@
   no_log: yes
   changed_when: true
 
+- name: Check if bulk import already completed
+  stat:
+    path: "{{ samtrader_import_marker_file }}"
+  register: bulk_import_marker
+
+- name: Download SQL dump from Dropbox
+  get_url:
+    url: "{{ samtrader_sql_dump_url }}"
+    dest: "{{ samtrader_sql_dump_path }}"
+    owner: samtrader
+    group: samtrader
+    mode: '0640'
+  when:
+    - samtrader_db_backend == 'postgres'
+    - samtrader_sql_dump_url | length > 0
+    - not bulk_import_marker.stat.exists
+  register: sql_dump_download
+
+- name: Import SQL dump into PostgreSQL
+  command: >
+    psql
+    --host=127.0.0.1
+    --port=5432
+    --username={{ samtrader_pg_user }}
+    --dbname={{ samtrader_pg_database }}
+    --file={{ samtrader_sql_dump_path }}
+  environment:
+    PGPASSWORD: "{{ samtrader_pg_password }}"
+  become_user: samtrader
+  when:
+    - samtrader_db_backend == 'postgres'
+    - sql_dump_download is changed
+  no_log: yes
+  async: 3600
+  poll: 30
+  register: sql_import
+
+- name: Create bulk import marker file
+  file:
+    path: "{{ samtrader_import_marker_file }}"
+    state: touch
+    owner: samtrader
+    group: samtrader
+    mode: '0640'
+  when: sql_import is changed
+
+- name: Remove SQL dump file after successful import
+  file:
+    path: "{{ samtrader_sql_dump_path }}"
+    state: absent
+  when: sql_import is changed
+
 - name: Enable and start samtrader service
   systemd:
     name: samtrader
