@@ -56,6 +56,43 @@ impl PostgresAdapter {
             reason: e.to_string(),
         })
     }
+
+    pub fn initialize_schema(&self) -> Result<(), SamtraderError> {
+        let mut conn = self.get_conn()?;
+
+        let create_table = "CREATE TABLE IF NOT EXISTS public.ohlcv (
+            code CHARACTER VARYING NOT NULL,
+            exchange CHARACTER VARYING NOT NULL,
+            date TIMESTAMP WITH TIME ZONE NOT NULL,
+            open NUMERIC NOT NULL,
+            high NUMERIC NOT NULL,
+            low NUMERIC NOT NULL,
+            close NUMERIC NOT NULL,
+            volume INTEGER NOT NULL,
+            PRIMARY KEY (code, exchange, date)
+        )";
+
+        conn.execute(create_table, &[])
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        let create_idx_code_exchange =
+            "CREATE INDEX IF NOT EXISTS ohlcv_code_exchange_idx ON public.ohlcv USING btree (code, exchange)";
+        conn.execute(create_idx_code_exchange, &[])
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        let create_idx_date =
+            "CREATE INDEX IF NOT EXISTS ohlcv_date_idx ON public.ohlcv USING btree (date)";
+        conn.execute(create_idx_date, &[])
+            .map_err(|e| SamtraderError::DatabaseQuery {
+                reason: e.to_string(),
+            })?;
+
+        Ok(())
+    }
 }
 
 impl DataPort for PostgresAdapter {
@@ -190,5 +227,21 @@ mod tests {
             Err(other) => panic!("expected ConfigMissing, got: {other}"),
             Ok(_) => panic!("expected error, got Ok"),
         }
+    }
+
+    fn get_test_adapter() -> Option<PostgresAdapter> {
+        let conn_str = std::env::var("SAMTRADER_PG_TEST_CONN").ok()?;
+        let pg_config: postgres::Config = conn_str.parse().ok()?;
+        let manager = PostgresConnectionManager::new(pg_config, NoTls);
+        let pool = Pool::builder().max_size(1).build(manager).ok()?;
+        Some(PostgresAdapter { pool })
+    }
+
+    #[test]
+    #[ignore]
+    fn initialize_schema_is_idempotent() {
+        let adapter = get_test_adapter().expect("Set SAMTRADER_PG_TEST_CONN to run this test");
+        adapter.initialize_schema().unwrap();
+        adapter.initialize_schema().unwrap();
     }
 }
