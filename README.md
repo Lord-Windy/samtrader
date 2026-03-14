@@ -21,8 +21,11 @@ cargo build --release
 # With PostgreSQL backend
 cargo build --release --features postgres
 
-# With web interface (includes SQLite)
-cargo build --release --features web
+# With web interface and SQLite
+cargo build --release --features web-sqlite
+
+# With web interface and PostgreSQL
+cargo build --release --features web-postgres
 ```
 
 ### Feature Flags
@@ -31,9 +34,21 @@ cargo build --release --features web
 |------|-------------|--------------|
 | `sqlite` (default) | SQLite data adapter | rusqlite, r2d2, r2d2_sqlite |
 | `postgres` | PostgreSQL data adapter | postgres |
-| `web` | Web server with HTML interface | axum, tokio, askama, axum-login, argon2, tower-sessions |
+| `web-sqlite` | Web server with SQLite backend | All web deps + sqlite |
+| `web-postgres` | Web server with PostgreSQL backend | All web deps + postgres |
 
-The `web` feature implies `sqlite` (web server requires SQLite for session storage).
+The `web-sqlite` and `web-postgres` features include all dependencies needed for the web interface plus their respective database backend.
+
+### Migration from `web` Feature
+
+**Note:** The `web` feature is deprecated. Use explicit feature names instead:
+
+| Old Command | New Command |
+|-------------|-------------|
+| `cargo build --features web` | `cargo build --features web-sqlite` |
+| `cargo test --features web` | `cargo test --features web-sqlite` |
+
+The `web` feature currently maps to `web-sqlite` for backward compatibility, but will be removed in a future release.
 
 ## CLI Usage
 
@@ -235,7 +250,7 @@ samtrader_auth_username=admin
 
 1. Build the binary with web support:
    ```bash
-   cargo build --release --features web
+   cargo build --release --features web-sqlite
    ```
 
 2. Create system user:
@@ -361,8 +376,9 @@ Rules are composable predicates defined in configuration:
 ```bash
 cargo test
 
-# With web feature
-cargo test --features web
+# With web features
+cargo test --features web-sqlite
+cargo test --features web-postgres
 ```
 
 ### Project Structure

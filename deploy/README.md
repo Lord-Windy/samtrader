@@ -14,7 +14,7 @@ This directory contains deployment infrastructure for running samtrader on a Deb
 ### 1. Build the binary
 
 ```bash
-cargo build --release --features sqlite,web
+cargo build --release --features web-sqlite
 ```
 
 ### 2. Start the test VM

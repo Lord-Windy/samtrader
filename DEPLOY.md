@@ -6,6 +6,10 @@
 - Ansible 2.9+ on your local machine
 - A domain pointing at your server (e.g. `samtrader.samuelbrown.me`)
 
+> **Feature Migration:** The `web` feature has been replaced with explicit `web-sqlite` and `web-postgres` features. Update your build commands accordingly:
+> - `--features web` → `--features web-sqlite`
+> - `--features sqlite,web` → `--features web-sqlite`
+
 ## 1. DNS
 
 Add an A record for your subdomain in your DNS provider (e.g. Hover):
@@ -19,7 +23,7 @@ Wait for propagation (usually a few minutes).
 ## 2. Build the binary
 
 ```bash
-cargo build --release --features sqlite,web
+cargo build --release --features web-sqlite
 cp target/release/samtrader deploy/ansible/roles/samtrader/files/
 ```
 
@@ -30,7 +34,7 @@ The binary must match your server's architecture (x86_64 Linux in most cases).
 **Password hash** (for web login):
 
 ```bash
-cargo run --features sqlite,web -- hash-password
+cargo run --features web-sqlite -- hash-password
 ```
 
 Paste the output as `samtrader_auth_password` when deploying.
@@ -127,7 +131,7 @@ The VM is at `192.168.56.10`.
 After code changes, rebuild and redeploy:
 
 ```bash
-cargo build --release --features sqlite,web
+cargo build --release --features web-sqlite
 cd deploy/ansible
 ansible-playbook -i inventory.ini playbook.yml
 ```
