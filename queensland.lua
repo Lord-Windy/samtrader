@@ -33,6 +33,7 @@ end
 
 function process_ticket(ticket)
     local dir = context.worktree_path
+    local branch = "ticket-" .. ticket.id:lower()
     local prompt = ql.prompt("implement.md", { ticket = ticket })
 
     local result = ql.ai.run({
@@ -48,8 +49,7 @@ function process_ticket(ticket)
     local status_result = ql.exec(dir, "git", "status", "--porcelain")
     if status_result.success and status_result.stdout ~= "" then
         ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
-        ql.git.push(dir, "ticket-" .. ticket.id:lower())
-        ql.git.queue_merge(ticket.id)
+        ql.git.push(dir, branch)
     end
 
     return {
@@ -60,6 +60,7 @@ end
 
 function review_ticket(ticket)
     local dir = context.worktree_path
+    local branch = "ticket-" .. ticket.id:lower()
     local prompt = ql.prompt("review.md", { ticket = ticket })
 
     local result = ql.ai.run({
@@ -75,9 +76,10 @@ function review_ticket(ticket)
     local status_result = ql.exec(dir, "git", "status", "--porcelain")
     if status_result.success and status_result.stdout ~= "" then
         ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
-        ql.git.push(dir, "ticket-" .. ticket.id:lower())
-        ql.git.queue_merge(ticket.id)
+        ql.git.push(dir, branch)
     end
+
+    ql.git.queue_merge(ticket.id, branch)
 
     return {
         status = "success",
@@ -91,6 +93,10 @@ end
 
 if context and context.action == "review_ticket" then
     return review_ticket(context.ticket)
+end
+
+if context and context.action == "merge_all" then
+    return ql.git.merge_all()
 end
 
 return {
