@@ -73,11 +73,17 @@
     - Reload systemd daemon
     - Restart samtrader
 
-- name: Run database migration
+- name: Run database migration (SQLite)
   command: /usr/local/bin/samtrader migrate --sqlite {{ samtrader_db_path }}
   args:
     creates: "{{ samtrader_db_path }}"
   become_user: samtrader
+  when: samtrader_db_backend == 'sqlite'
+
+- name: Run database migration (PostgreSQL)
+  command: /usr/local/bin/samtrader migrate --postgres "postgresql://{{ samtrader_pg_user }}:{{ samtrader_pg_password }}@127.0.0.1:5432/{{ samtrader_pg_database }}"
+  become_user: samtrader
+  when: samtrader_db_backend == 'postgres'
 
 - name: Enable and start samtrader service
   systemd:

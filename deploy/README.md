@@ -13,8 +13,14 @@ This directory contains deployment infrastructure for running samtrader on a Deb
 
 ### 1. Build the binary
 
+For SQLite (default for local testing):
 ```bash
 cargo build --release --features web-sqlite
+```
+
+For PostgreSQL (default in playbook):
+```bash
+cargo build --release --features web-postgres
 ```
 
 ### 2. Start the test VM
@@ -94,7 +100,10 @@ After deployment, verify:
 2. Set required variables:
    - `samtrader_domain` - Your domain name
    - `samtrader_auth_password` - Admin password (use ansible-vault)
-3. Run: `ansible-playbook -i inventory.ini playbook.yml`
+   - `samtrader_db_backend` - Database backend: `postgres` (default) or `sqlite`
+   - `samtrader_pg_password` - PostgreSQL password (required if using postgres)
+3. Build with matching features: `--features web-postgres` or `--features web-sqlite`
+4. Run: `ansible-playbook -i inventory.ini playbook.yml`
 
 ## Troubleshooting
 
