@@ -2,3 +2,7 @@
 samtrader_backup_retention_daily: 7
 samtrader_backup_retention_weekly: 4
 samtrader_backup_retention_monthly: 3
+
+samtrader_pg_user: samtrader
+samtrader_pg_database: samtrader
+samtrader_pg_password: ""
