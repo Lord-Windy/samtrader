@@ -45,6 +45,13 @@ function process_ticket(ticket)
         error("Implementation failed: " .. result.stderr)
     end
 
+    local status_result = ql.exec(dir, "git", "status", "--porcelain")
+    if status_result.success and status_result.stdout ~= "" then
+        ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
+        ql.git.push(dir, "ticket-" .. ticket.id:lower())
+        ql.git.queue_merge(ticket.id)
+    end
+
     return {
         status = "success",
         dir = dir,
@@ -65,8 +72,12 @@ function review_ticket(ticket)
         error("Review failed: " .. result.stderr)
     end
 
-    ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
-    ql.git.push(dir, "ticket-" .. ticket.id:lower())
+    local status_result = ql.exec(dir, "git", "status", "--porcelain")
+    if status_result.success and status_result.stdout ~= "" then
+        ql.git.commit(dir, string.format("%s: %s", ticket.id, ticket.summary))
+        ql.git.push(dir, "ticket-" .. ticket.id:lower())
+        ql.git.queue_merge(ticket.id)
+    end
 
     return {
         status = "success",
