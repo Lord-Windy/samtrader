@@ -884,7 +884,7 @@ fn run_migrate_sqlite(sqlite_path: &PathBuf) -> ExitCode {
 }
 
 fn run_migrate_postgres(conn_string: &str) -> ExitCode {
-    #[cfg(feature = "web-postgres")]
+    #[cfg(feature = "postgres")]
     {
         use crate::adapters::postgres_adapter::PostgresAdapter;
 
@@ -908,10 +908,10 @@ fn run_migrate_postgres(conn_string: &str) -> ExitCode {
         ExitCode::SUCCESS
     }
 
-    #[cfg(not(feature = "web-postgres"))]
+    #[cfg(not(feature = "postgres"))]
     {
         let _ = conn_string;
-        eprintln!("error: web-postgres feature is required for migrate --postgres");
+        eprintln!("error: postgres feature is required for migrate --postgres");
         ExitCode::from(1)
     }
 }
