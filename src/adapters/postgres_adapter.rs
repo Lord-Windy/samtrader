@@ -108,10 +108,15 @@ impl PostgresAdapter {
 
         let mut param_idx = 1;
         let mut value_rows: Vec<String> = Vec::new();
-        let mut params: Vec<Box<dyn ToSql + Sync>> = Vec::new();
+        let mut dts: Vec<DateTime<Utc>> = Vec::with_capacity(bars.len());
+        let mut params: Vec<&(dyn ToSql + Sync)> = Vec::new();
 
         for bar in bars {
             let dt: DateTime<Utc> = bar.date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+            dts.push(dt);
+        }
+
+        for (i, bar) in bars.iter().enumerate() {
             value_rows.push(format!(
                 "(${},${},${},${},${},${},${},${})",
                 param_idx,
@@ -125,14 +130,14 @@ impl PostgresAdapter {
             ));
             param_idx += 8;
 
-            params.push(Box::new(bar.code.clone()));
-            params.push(Box::new(bar.exchange.clone()));
-            params.push(Box::new(dt));
-            params.push(Box::new(bar.open));
-            params.push(Box::new(bar.high));
-            params.push(Box::new(bar.low));
-            params.push(Box::new(bar.close));
-            params.push(Box::new(bar.volume));
+            params.push(&bar.code);
+            params.push(&bar.exchange);
+            params.push(&dts[i]);
+            params.push(&bar.open);
+            params.push(&bar.high);
+            params.push(&bar.low);
+            params.push(&bar.close);
+            params.push(&bar.volume);
         }
 
         let query = format!(
@@ -147,8 +152,7 @@ impl PostgresAdapter {
             value_rows.join(",")
         );
 
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p.as_ref()).collect();
-        tx.execute(&query, &params_refs[..])
+        tx.execute(&query, &params[..])
             .map_err(|e| SamtraderError::DatabaseQuery {
                 reason: e.to_string(),
             })?;
@@ -293,6 +297,101 @@ mod tests {
             Err(other) => panic!("expected ConfigMissing, got: {other}"),
             Ok(_) => panic!("expected error, got Ok"),
         }
+    }
+
+    struct MockConfig {
+        postgres_conn: Option<String>,
+        database_conninfo: Option<String>,
+        pool_size: Option<i64>,
+    }
+
+    impl MockConfig {
+        fn new() -> Self {
+            Self {
+                postgres_conn: None,
+                database_conninfo: None,
+                pool_size: None,
+            }
+        }
+    }
+
+    impl ConfigPort for MockConfig {
+        fn get_string(&self, section: &str, key: &str) -> Option<String> {
+            match (section, key) {
+                ("postgres", "connection_string") => self.postgres_conn.clone(),
+                ("database", "conninfo") => self.database_conninfo.clone(),
+                _ => None,
+            }
+        }
+        fn get_int(&self, section: &str, key: &str, default: i64) -> i64 {
+            match (section, key) {
+                ("postgres", "pool_size") => self.pool_size.unwrap_or(default),
+                _ => default,
+            }
+        }
+        fn get_double(&self, _section: &str, _key: &str, default: f64) -> f64 {
+            default
+        }
+        fn get_bool(&self, _section: &str, _key: &str, default: bool) -> bool {
+            default
+        }
+    }
+
+    #[test]
+    fn from_config_uses_postgres_connection_string_when_set() {
+        let mut config = MockConfig::new();
+        config.postgres_conn = Some("invalid://connection".to_string());
+        config.database_conninfo = Some("fallback://should-not-be-used".to_string());
+        let result = PostgresAdapter::from_config(&config);
+        match result {
+            Err(SamtraderError::Database { reason }) => {
+                assert!(
+                    reason.contains("Invalid connection string"),
+                    "expected 'Invalid connection string' error, got: {reason}"
+                );
+            }
+            Err(other) => panic!("expected Database error, got: {other}"),
+            Ok(_) => panic!("expected error for invalid connection string, got Ok"),
+        }
+    }
+
+    #[test]
+    fn from_config_uses_database_conninfo_as_fallback() {
+        let mut config = MockConfig::new();
+        config.postgres_conn = None;
+        config.database_conninfo = Some("invalid://fallback".to_string());
+        let result = PostgresAdapter::from_config(&config);
+        match result {
+            Err(SamtraderError::Database { reason }) => {
+                assert!(
+                    reason.contains("Invalid connection string"),
+                    "expected 'Invalid connection string' error, got: {reason}"
+                );
+            }
+            Err(other) => panic!("expected Database error, got: {other}"),
+            Ok(_) => panic!("expected error for invalid connection string, got Ok"),
+        }
+    }
+
+    #[test]
+    fn from_config_default_pool_size_is_four() {
+        let config = MockConfig::new();
+        assert_eq!(
+            config.get_int("postgres", "pool_size", 4),
+            4,
+            "default pool_size should be 4"
+        );
+    }
+
+    #[test]
+    fn from_config_custom_pool_size() {
+        let mut config = MockConfig::new();
+        config.pool_size = Some(10);
+        assert_eq!(
+            config.get_int("postgres", "pool_size", 4),
+            10,
+            "custom pool_size should override default"
+        );
     }
 
     fn get_test_adapter() -> Option<PostgresAdapter> {
